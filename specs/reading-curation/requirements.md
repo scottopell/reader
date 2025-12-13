@@ -2,7 +2,10 @@
 
 ## User Story
 
-As a busy technical professional, I need to aggregate content from email newsletters, RSS feeds, and manual URLs, have it scored for relevance by an LLM, and pull curated bundles to my e-reader so that I can consume high-quality reading without decision fatigue.
+As a busy technical professional, I need to aggregate content from email
+newsletters, RSS feeds, and manual URLs, have it scored for relevance by an LLM,
+and pull curated bundles to my e-reader so that I can consume high-quality
+reading without decision fatigue.
 
 ## Requirements
 
@@ -14,7 +17,8 @@ THE SYSTEM SHALL extract article content from the email body
 WHEN email contains HTML
 THE SYSTEM SHALL convert to Markdown preserving structure
 
-**Rationale:** Users want newsletter content (Matt Levine, paid Substacks) without anti-scraper issues. Email handles paywalled content naturally.
+**Rationale:** Users want newsletter content (Matt Levine, paid Substacks)
+without anti-scraper issues. Email handles paywalled content naturally.
 
 ---
 
@@ -28,7 +32,8 @@ THE SYSTEM SHALL fetch the linked article URL
 
 THE SYSTEM SHALL respect robots.txt and use polite crawling (1-5s delays)
 
-**Rationale:** Users want blog content from sources without email subscriptions. Polite crawling maintains access.
+**Rationale:** Users want blog content from sources without email subscriptions.
+Polite crawling maintains access.
 
 ---
 
@@ -40,7 +45,8 @@ THE SYSTEM SHALL queue the URL for content extraction and scoring
 WHEN content extraction succeeds
 THE SYSTEM SHALL notify user "Article queued for scoring"
 
-**Rationale:** Users want to add one-off articles from anywhere via iOS Shortcuts share sheet.
+**Rationale:** Users want to add one-off articles from anywhere via iOS
+Shortcuts share sheet.
 
 ---
 
@@ -53,7 +59,8 @@ THE SYSTEM SHALL include brief reasoning with each score
 
 THE SYSTEM SHALL estimate reading time category (quick/medium/deep)
 
-**Rationale:** Users want automated filtering based on their interests, reducing daily curation from ~20min to <5min.
+**Rationale:** Users want automated filtering based on their interests, reducing
+daily curation from ~20min to <5min.
 
 ---
 
@@ -65,7 +72,8 @@ THE SYSTEM SHALL record which prompt version was used
 WHEN prompt is updated
 THE SYSTEM SHALL allow re-scoring articles with new prompt
 
-**Rationale:** Users want to understand which prompt version produced which scores for calibration.
+**Rationale:** Users want to understand which prompt version produced which
+scores for calibration.
 
 ---
 
@@ -79,7 +87,8 @@ THE SYSTEM SHALL flag article for manual review
 
 THE SYSTEM SHALL store extracted content as Markdown
 
-**Rationale:** Quality extraction is critical - users can't score or read garbage content.
+**Rationale:** Quality extraction is critical - users can't score or read
+garbage content.
 
 ---
 
@@ -88,9 +97,11 @@ THE SYSTEM SHALL store extracted content as Markdown
 WHEN user requests bundle generation
 THE SYSTEM SHALL create individual .txt files for each selected article
 
-THE SYSTEM SHALL include for each article: title, source, reading time, score, and content
+THE SYSTEM SHALL include for each article: title, source, reading time, score,
+and content
 
-**Rationale:** Users want to transfer selected articles to X4 e-reader as separate files for easy navigation.
+**Rationale:** Users want to transfer selected articles to X4 e-reader as
+separate files for easy navigation.
 
 ---
 
@@ -99,9 +110,11 @@ THE SYSTEM SHALL include for each article: title, source, reading time, score, a
 WHEN user accesses the inbox
 THE SYSTEM SHALL display all unread articles sorted by score (highest first)
 
-THE SYSTEM SHALL show for each article: title, source, score, reading time estimate, and LLM reasoning
+THE SYSTEM SHALL show for each article: title, source, score, reading time
+estimate, and LLM reasoning
 
-**Rationale:** Users want to quickly scan and cherry-pick interesting articles with AI reasoning visible.
+**Rationale:** Users want to quickly scan and cherry-pick interesting articles
+with AI reasoning visible.
 
 ---
 
@@ -113,7 +126,8 @@ THE SYSTEM SHALL add them to the pending device bundle
 WHEN user requests bundle download
 THE SYSTEM SHALL generate individual .txt files for each selected article
 
-**Rationale:** Pull-based workflow - users browse, select, then download when ready.
+**Rationale:** Pull-based workflow - users browse, select, then download when
+ready.
 
 ---
 
@@ -125,7 +139,8 @@ THE SYSTEM SHALL display the full article content in a reading view
 WHEN user finishes reading in-app
 THE SYSTEM SHALL mark article as 'read'
 
-**Rationale:** Users sometimes want to read inline without going to the e-reader.
+**Rationale:** Users sometimes want to read inline without going to the
+e-reader.
 
 ---
 
@@ -136,7 +151,8 @@ THE SYSTEM SHALL search across title, source, content, and tags
 
 THE SYSTEM SHALL return results sorted by relevance
 
-**Rationale:** Users want to find past articles they remember reading or want to reference.
+**Rationale:** Users want to find past articles they remember reading or want to
+reference.
 
 ---
 
@@ -173,7 +189,8 @@ THE SYSTEM SHALL record user decisions: 'sent', 'skipped', 'read', 'pending'
 WHEN user provides post-reading rating
 THE SYSTEM SHALL store rating alongside LLM score
 
-**Rationale:** Users want precision/recall analysis to improve scoring over time.
+**Rationale:** Users want precision/recall analysis to improve scoring over
+time.
 
 ---
 
@@ -193,7 +210,8 @@ THE SYSTEM SHALL allow enabling/disabling individual sources
 
 ### REQ-RC-016: Secure Access by Default
 
-THE SYSTEM SHALL default to HTTP Basic Auth with randomly generated username+password
+THE SYSTEM SHALL default to HTTP Basic Auth with randomly generated
+username+password
 
 WHEN DANGEROUS_NO_WEB AUTH_MODE=1 is set
 THE SYSTEM SHALL allow unauthenticated web UI route access
@@ -207,7 +225,8 @@ THE SYSTEM SHALL reject all API key authentication attempts
 WHEN first started
 THE SYSTEM SHALL log the generated credentials
 
-**Rationale:** Secure by default without infrastructure assumptions. Explicit opt-out for dev/testing.
+**Rationale:** Secure by default without infrastructure assumptions. Explicit
+opt-out for dev/testing.
 
 ---
 
@@ -229,6 +248,7 @@ THE SYSTEM SHALL return ZIP file containing individual .txt articles
 
 THE SYSTEM SHALL include only articles marked for device bundle
 
-**Rationale:** iOS Shortcuts can fetch bundle and save to Files app for X4 transfer.
+**Rationale:** iOS Shortcuts can fetch bundle and save to Files app for X4
+transfer.
 
 ---

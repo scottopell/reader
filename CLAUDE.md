@@ -2,29 +2,37 @@
 
 ## Project Overview
 
-Reader is a self-hosted reading curation system. It aggregates content from email newsletters, RSS feeds, and manual URLs, scores articles using Claude, and generates text bundles for e-reader devices.
+Reader is a self-hosted reading curation system. It aggregates content from
+email newsletters, RSS feeds, and manual URLs, scores articles using Claude, and
+generates text bundles for e-reader devices.
 
-This is a single-user, self-hosted application. Do not over-engineer for multi-tenancy or scale.
+This is a single-user, self-hosted application. Do not over-engineer for
+multi-tenancy or scale.
 
 ## spEARS Methodology
 
-This project follows spEARS (Simple Project with EARS). All specifications live in `specs/`.
+This project follows spEARS (Simple Project with EARS). All specifications live
+in `specs/`.
 
 ### Key Rules
 
-1. **Requirements are in `specs/reading-curation/requirements.md`** - 18 requirements (REQ-RC-001 to REQ-RC-018)
+1. **Requirements are in `specs/reading-curation/requirements.md`** - 18
+   requirements (REQ-RC-001 to REQ-RC-018)
 2. **Use the `update-reqs` agent** when modifying any `specs/**/*.md` files
 3. **Reference requirement IDs** in code comments and tests:
+
    ```python
    # REQ-RC-004: LLM scoring implementation
    def score_article(article: Article) -> Score:
    ```
+
 4. **Update `executive.md` status** when implementing requirements
 5. **Never delete requirements** - deprecate them instead
 
 ### Traceability
 
 Every requirement should be traceable via grep:
+
 ```bash
 rg "REQ-RC-001"  # Should find: requirements.md, design.md, executive.md, code, tests
 ```
@@ -65,7 +73,7 @@ These were explicitly rejected or deferred:
 
 ### File Structure
 
-```
+```text
 reader/
 ├── src/
 │   ├── ingestion/      # REQ-RC-001, REQ-RC-002, REQ-RC-003
@@ -119,4 +127,5 @@ def test_req_rc_004_article_scoring():
 
 ### Running background jobs
 
-Ingestion and scoring run on a schedule (systemd timer or cron). The web server does not run these - they are separate processes.
+Ingestion and scoring run on a schedule (systemd timer or cron). The web server
+does not run these - they are separate processes.

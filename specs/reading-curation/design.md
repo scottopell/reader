@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Input Sources                                │
 ├─────────────────────────────────────────────────────────────────┤
@@ -134,17 +134,21 @@ CREATE TABLE auth_config (
 ### Web UI Endpoints
 
 #### GET /inbox
+
 **REQ-RC-008, REQ-RC-012**
 
 Returns paginated article list sorted by score.
 
 Query params:
+
 - `show_all=1` - Include all articles regardless of score
 - `page=N` - Pagination (default: 1)
 
-Response: HTML page with article cards showing title, source, score, reading time, LLM reasoning.
+Response: HTML page with article cards showing title, source, score, reading
+time, LLM reasoning.
 
 #### GET /article/:id
+
 **REQ-RC-010**
 
 Returns full article reading view.
@@ -152,6 +156,7 @@ Returns full article reading view.
 Response: HTML page with article content rendered from Markdown.
 
 #### POST /article/:id/decision
+
 **REQ-RC-014**
 
 Records user decision on article.
@@ -159,17 +164,20 @@ Records user decision on article.
 Body: `{ "decision": "sent" | "skipped" | "read", "rating": 1-5 (optional) }`
 
 #### GET /archive
+
 **REQ-RC-011**
 
 Search past articles.
 
 Query params:
+
 - `q=search+terms` - Search query
 - `page=N` - Pagination
 
 Response: HTML page with search results.
 
 #### GET /stats
+
 **REQ-RC-013**
 
 Returns eval metrics dashboard.
@@ -177,6 +185,7 @@ Returns eval metrics dashboard.
 Response: HTML page with precision/recall charts and trends.
 
 #### GET /settings
+
 **REQ-RC-015**
 
 Manage feed sources.
@@ -184,6 +193,7 @@ Manage feed sources.
 Response: HTML page with source list and add/edit forms.
 
 #### POST /settings/sources
+
 **REQ-RC-015**
 
 Add or update feed source.
@@ -193,6 +203,7 @@ Body: `{ "type": "email" | "rss", "identifier": "...", "display_name": "...", "e
 ### API Endpoints (API Key Required)
 
 #### POST /api/article
+
 **REQ-RC-003, REQ-RC-017**
 
 Submit URL for extraction and scoring.
@@ -204,6 +215,7 @@ Body: `{ "url": "https://..." }`
 Response: `{ "status": "queued", "message": "Article queued for scoring" }`
 
 #### GET /api/bundle
+
 **REQ-RC-018**
 
 Download bundle of selected articles.
@@ -213,6 +225,7 @@ Headers: `Authorization: Bearer <API_KEY>`
 Response: ZIP file containing individual .txt files.
 
 #### POST /api/bundle/add/:id
+
 **REQ-RC-009**
 
 Add article to pending bundle.
@@ -222,6 +235,7 @@ Headers: `Authorization: Bearer <API_KEY>`
 Response: `{ "status": "added", "bundle_count": N }`
 
 #### DELETE /api/bundle/remove/:id
+
 **REQ-RC-009**
 
 Remove article from pending bundle.
@@ -419,16 +433,21 @@ Reading Time: {article.reading_time_category}
 ## Error Handling Strategy
 
 ### Ingestion Errors
-- **IMAP connection failure**: Log error, retry next cycle, alert if 3 consecutive failures
+
+- **IMAP connection failure**: Log error, retry next cycle, alert if 3
+  consecutive failures
 - **RSS fetch failure**: Log error, skip feed, continue with others
-- **Content extraction failure**: Set extraction_status='failed', flag for manual review (REQ-RC-006)
+- **Content extraction failure**: Set extraction_status='failed', flag for
+  manual review (REQ-RC-006)
 
 ### Scoring Errors
+
 - **Claude API timeout**: Retry with exponential backoff (3 attempts)
 - **Rate limit**: Queue for later, process in next batch
 - **Invalid response**: Log raw response, skip scoring, flag for retry
 
 ### Authentication Errors
+
 - **Invalid API key**: Return 401 Unauthorized
 - **Invalid Basic Auth**: Return 401 with WWW-Authenticate header
 
@@ -437,43 +456,51 @@ Reading Time: {article.reading_time_category}
 ### REQ-RC-016: Authentication
 
 **HTTP Basic Auth (default):**
+
 - On first startup, generate random username (8 chars) and password (32 chars)
 - Log credentials to console: `Generated credentials: username=xxx password=yyy`
 - Store hashed password in auth_config table
 - All web UI routes require Basic Auth
 
 **API Key:**
+
 - Set via `API_KEY` environment variable
 - If unset, all API endpoints return 401
 - API key checked via Bearer token in Authorization header
 
 **No Web Auth Mode:**
+
 - Only enabled when `DANGEROUS_NO_WEB_AUTH_MODE=1` is set
 - Allows web UI access _NOT_ API access.
 - Logs warning on startup
 
 ### Input Validation
+
 - URL submissions: Validate URL format, reject non-HTTP(S)
 - Feed sources: Sanitize identifiers, validate RSS URL format
 - Search queries: Escape for FTS5, limit query length
 
 ### Rate Limiting
+
 - API endpoints: 100 requests/hour per API key
 - Web UI: 1000 requests/hour per IP (when behind proxy)
 
 ## Performance Considerations
 
 ### Database Optimization
+
 - SQLite WAL mode for concurrent reads
 - FTS5 for fast full-text search
 - Indexes on frequently queried columns (score, received_at, decision)
 
 ### LLM Cost Optimization (REQ-RC-004)
+
 - Prompt caching: System prompt cached, only article content varies
 - Batch scoring: Score up to 10 articles per API call where supported
 - Estimated cost: ~$5-7/month for 100 articles/day
 
 ### Content Extraction
+
 - Cache Readability results
 - Timeout: 30s per article fetch
 - Parallel fetching with concurrency limit (3)
@@ -481,11 +508,13 @@ Reading Time: {article.reading_time_category}
 ## Technology Stack
 
 ### Runtime & Package Management
+
 - **Python**: 3.12+ (required for latest type system features)
 - **Package manager**: uv (fast dependency resolution)
 - **Project layout**: src/ layout with PEP 723 inline scripts for dev tasks
 
 ### Web Framework & API
+
 - **Framework**: FastAPI (async ASGI, auto OpenAPI docs)
 - **ASGI server**: uvicorn (production server)
 - **Validation**: Pydantic v2 (request/response models, settings)
@@ -493,15 +522,18 @@ Reading Time: {article.reading_time_category}
 - **Forms**: python-multipart (multipart/form-data handling)
 
 ### Data & Storage
+
 - **Database**: SQLite (stdlib sqlite3 module, WAL mode)
 - **HTTP client**: httpx (async HTTP, connection pooling)
 
 ### Content Processing
+
 - **RSS parsing**: feedparser (RSS/Atom feed handling)
 - **Content extraction**: readability-lxml (Mozilla Readability port)
 - **LLM integration**: anthropic (Claude API with prompt caching)
 
 ### Code Quality
+
 - **Formatting**: Ruff (format)
 - **Linting**: Ruff (lint)
 - **Type checking**: mypy --strict + pyright strict (both in CI)
@@ -509,12 +541,14 @@ Reading Time: {article.reading_time_category}
 - **Property testing**: hypothesis (where natural fit for domain logic)
 
 ### Dev Tooling
+
 - **Task runner**: ./dev.py (PEP 723 inline script, no external task runner)
 - **Common tasks**: format, lint, typecheck, test, run, migrate
 
 ## Implementation Notes
 
 ### REQ-RC-001: Email Ingestion
+
 - **Location**: `src/reader/ingestion/email.py`
 - **Libraries**:
   - `imaplib` (stdlib, IMAP client)
@@ -524,6 +558,7 @@ Reading Time: {article.reading_time_category}
 - **Database**: `src/reader/db/repository.py` (article repository)
 
 ### REQ-RC-002: RSS Ingestion
+
 - **Location**: `src/reader/ingestion/rss.py`
 - **Libraries**:
   - `feedparser` (RSS/Atom parsing)
@@ -533,6 +568,7 @@ Reading Time: {article.reading_time_category}
 - **Rate limiting**: httpx client with custom timeout/retry policies
 
 ### REQ-RC-004: LLM Scoring
+
 - **Location**: `src/reader/scoring/llm.py`
 - **Libraries**:
   - `anthropic` (Claude API client)
@@ -542,6 +578,7 @@ Reading Time: {article.reading_time_category}
 - **Async**: Use `anthropic.AsyncAnthropic` for non-blocking scoring
 
 ### REQ-RC-006: Content Extraction
+
 - **Location**: `src/reader/extraction/readability.py`
 - **Libraries**:
   - `readability-lxml` (primary extraction)
@@ -550,6 +587,7 @@ Reading Time: {article.reading_time_category}
 - **Markdown conversion**: Custom converter or `markdownify` library
 
 ### REQ-RC-007: Bundle Generation
+
 - **Location**: `src/reader/bundle/generator.py`
 - **Libraries**:
   - `zipfile` (stdlib, ZIP archive creation)
@@ -557,6 +595,7 @@ Reading Time: {article.reading_time_category}
 - **Output**: In-memory ZIP via `io.BytesIO` for direct streaming
 
 ### REQ-RC-008 through REQ-RC-012: Web UI
+
 - **Location**: `src/reader/web/routes/`
   - `inbox.py` (article list, scoring display)
   - `article.py` (single article view)
@@ -568,6 +607,7 @@ Reading Time: {article.reading_time_category}
 - **Static assets**: `src/reader/web/static/`
 
 ### REQ-RC-016: Authentication
+
 - **Location**: `src/reader/auth/`
   - `middleware.py` (FastAPI dependency injection)
   - `credentials.py` (credential generation, storage)
@@ -575,9 +615,11 @@ Reading Time: {article.reading_time_category}
   - `secrets` (stdlib, secure token generation)
   - `passlib[bcrypt]` (password hashing)
 - **Storage**: `~/.config/reader/auth.db` (separate SQLite database)
-- **Implementation**: FastAPI HTTPBasic security scheme + custom API key dependency
+- **Implementation**: FastAPI HTTPBasic security scheme + custom API key
+  dependency
 
 ### REQ-RC-017, REQ-RC-018: API Endpoints
+
 - **Location**: `src/reader/web/routes/api.py`
 - **Auth**: FastAPI Depends() with custom API key validator
 - **Rate limiting**: slowapi or custom middleware with in-memory token bucket

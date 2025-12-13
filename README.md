@@ -1,10 +1,13 @@
 # Reader
 
-A self-hosted reading curation system that aggregates content from email newsletters, RSS feeds, and manual URLs, scores articles for relevance using Claude, and generates bundles for e-reader devices.
+A self-hosted reading curation system that aggregates content from email
+newsletters, RSS feeds, and manual URLs, scores articles for relevance using
+Claude, and generates bundles for e-reader devices.
 
 ## Problem
 
 Consuming high-quality technical content during commutes without:
+
 - Manual pre-filtering overhead (decision fatigue before reading)
 - Scrolling through low-signal firehose content
 - Dealing with web scraper anti-bot measures
@@ -14,8 +17,10 @@ Consuming high-quality technical content during commutes without:
 
 Reader automates content discovery and filtering:
 
-1. **Aggregate** - Pull content from email newsletters (sidesteps anti-scraper issues), RSS feeds, and manual URL submissions
-2. **Score** - Claude rates each article 1-10 for relevance with reasoning visible
+1. **Aggregate** - Pull content from email newsletters (sidesteps anti-scraper
+   issues), RSS feeds, and manual URL submissions
+2. **Score** - Claude rates each article 1-10 for relevance with reasoning
+   visible
 3. **Browse** - Web UI shows score-sorted inbox, defaulting to top 50% articles
 4. **Select** - Pick what looks interesting, add to bundle
 5. **Transfer** - Download individual .txt files for e-reader
@@ -65,11 +70,12 @@ cd reader
 
 ### Database
 
-SQLite database stored at `~/.config/reader/reader.db` (configurable via `READER_DB_PATH`).
+SQLite database stored at `~/.config/reader/reader.db` (configurable via
+`READER_DB_PATH`).
 
 ## Architecture
 
-```
+```text
 [Email/RSS/Manual URL]
          │
          ▼
@@ -109,7 +115,7 @@ SQLite database stored at `~/.config/reader/reader.db` (configurable via `READER
 
 ### Save Article
 
-```
+```text
 POST https://your-server/api/article
 Authorization: Bearer <API_KEY>
 Content-Type: application/json
@@ -119,7 +125,7 @@ Content-Type: application/json
 
 ### Download Bundle
 
-```
+```text
 GET https://your-server/api/bundle
 Authorization: Bearer <API_KEY>
 
@@ -128,9 +134,11 @@ Authorization: Bearer <API_KEY>
 
 ## Development
 
-See [SPEARS.md](SPEARS.md) for the requirements methodology used in this project.
+See [SPEARS.md](SPEARS.md) for the requirements methodology used in this
+project.
 
 Specifications live in `specs/reading-curation/`:
+
 - `requirements.md` - EARS-formatted requirements
 - `design.md` - Technical architecture
 - `executive.md` - Status tracking
