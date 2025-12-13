@@ -26,7 +26,7 @@
 │                       ▼                                          │
 │              ┌─────────────────┐                                │
 │              │     Web UI      │                                │
-│              │  (Flask/FastAPI)│                                │
+│              │    (FastAPI)    │                                │
 │              └────────┬────────┘                                │
 │                       ▼                                          │
 │              ┌─────────────────┐                                │
@@ -234,61 +234,186 @@ Response: `{ "status": "removed", "bundle_count": N }`
 
 ### Email Ingestion Flow (REQ-RC-001)
 
-```
-Every 6 hours (configurable):
-1. Connect to IMAP server
-2. For each enabled email source:
-   a. Search for unread emails matching sender pattern
-   b. For each matching email:
-      - Extract HTML body
-      - Convert to Markdown (preserve headings, links, lists)
-      - Insert into articles table with source='email:sender'
-      - Mark email as read
-3. Trigger scoring for unscored articles
+```python
+# Background task scheduled every 6 hours (configurable)
+async def ingest_emails():
+    sources = await get_enabled_email_sources()
+
+    for source in sources:
+        with imaplib.IMAP4_SSL(source.server) as imap:
+            imap.login(source.username, source.password)
+            imap.select('INBOX')
+
+            # Search for unread emails from sender
+            _, msg_ids = imap.search(None, f'(FROM "{source.sender_pattern}" UNSEEN)')
+
+            for msg_id in msg_ids[0].split():
+                # Fetch and parse email
+                _, msg_data = imap.fetch(msg_id, '(RFC822)')
+                email_msg = email.message_from_bytes(msg_data[0][1])
+
+                # Extract HTML body and convert to Markdown
+                html_body = extract_html_body(email_msg)
+                markdown = html_to_markdown(html_body)
+
+                # Insert article
+                await article_repo.create(
+                    source=f'email:{source.sender_pattern}',
+                    title=email_msg['Subject'],
+                    content_markdown=markdown,
+                    author=email_msg['From']
+                )
+
+                # Mark as read
+                imap.store(msg_id, '+FLAGS', '\\Seen')
+
+    # Trigger scoring for unscored articles
+    await score_unscored_articles()
 ```
 
 ### RSS Ingestion Flow (REQ-RC-002)
 
-```
-Every 6 hours (configurable):
-1. For each enabled RSS source:
-   a. Fetch RSS feed
-   b. For each new entry (not in DB by URL):
-      - If full content in feed: extract directly
-      - Else: fetch article URL with polite delays (1-5s)
-      - Apply Readability extraction
-      - Convert to Markdown
-      - Insert into articles table with source='rss:feed-url'
-2. Trigger scoring for unscored articles
+```python
+# Background task scheduled every 6 hours (configurable)
+async def ingest_rss():
+    sources = await get_enabled_rss_sources()
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for source in sources:
+            # Fetch and parse RSS feed
+            feed = feedparser.parse(source.url)
+
+            for entry in feed.entries:
+                # Skip if already in database
+                if await article_repo.exists_by_url(entry.link):
+                    continue
+
+                # Extract content
+                if hasattr(entry, 'content') and entry.content:
+                    # Full content in feed
+                    html = entry.content[0].value
+                    markdown = html_to_markdown(html)
+                else:
+                    # Fetch article URL with polite delay
+                    await asyncio.sleep(random.uniform(1.0, 5.0))
+                    response = await client.get(entry.link)
+
+                    # Apply Readability extraction
+                    doc = readability.Document(response.text)
+                    html = doc.summary()
+                    markdown = html_to_markdown(html)
+
+                # Insert article
+                await article_repo.create(
+                    source=f'rss:{source.url}',
+                    title=entry.title,
+                    url=entry.link,
+                    author=entry.get('author'),
+                    content_markdown=markdown
+                )
+
+    # Trigger scoring for unscored articles
+    await score_unscored_articles()
 ```
 
 ### LLM Scoring Flow (REQ-RC-004, REQ-RC-005)
 
-```
-For each unscored article:
-1. Load active prompt version
-2. Prepare request:
-   - System prompt (cached): interests, preferences, scoring criteria
-   - User prompt: title, source, first 500 words of content
-3. Call Claude API
-4. Parse JSON response: score, reasoning, reading_time, tags
-5. Update article record with score, prompt_version, scored_at
+```python
+async def score_unscored_articles():
+    articles = await article_repo.get_unscored()
+    prompt_version = await get_active_prompt_version()
+
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    for article in articles:
+        # Prepare prompts
+        system_prompt = [
+            {
+                "type": "text",
+                "text": prompt_version.system_text,
+                "cache_control": {"type": "ephemeral"}  # Cache system prompt
+            }
+        ]
+
+        user_prompt = f"""
+Title: {article.title}
+Source: {article.source}
+Content (first 500 words):
+{article.content_markdown[:2000]}
+"""
+
+        # Call Claude API with structured output
+        response = await client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            response_format={
+                "type": "json_schema",
+                "json_schema": ScoringResponseSchema
+            }
+        )
+
+        # Parse JSON response
+        result = json.loads(response.content[0].text)
+
+        # Update article with scoring results
+        await article_repo.update_score(
+            article_id=article.id,
+            llm_score=result['score'],
+            llm_reasoning=result['reasoning'],
+            reading_time_category=result['reading_time'],
+            tags=json.dumps(result['tags']),
+            prompt_version=prompt_version.version,
+            scored_at=datetime.utcnow()
+        )
 ```
 
 ### Bundle Generation Flow (REQ-RC-007, REQ-RC-009)
 
-```
-When user requests bundle:
-1. Query articles WHERE in_bundle = 1
-2. For each article:
-   a. Generate .txt file:
-      - Header: title, source, score, reading time
-      - Separator line
-      - Content (Markdown → plain text)
-   b. Filename: {score}_{sanitized_title}.txt
-3. Create ZIP archive of all .txt files
-4. Return ZIP for download
-5. Clear in_bundle flag for downloaded articles
+```python
+from fastapi.responses import StreamingResponse
+
+@app.get("/api/bundle")
+async def download_bundle(api_key: str = Depends(validate_api_key)):
+    articles = await article_repo.get_bundled()
+
+    # Create in-memory ZIP file
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for article in articles:
+            # Generate .txt file content
+            header = f"""Title: {article.title}
+Source: {article.source}
+Score: {article.llm_score}/10
+Reading Time: {article.reading_time_category}
+
+{'=' * 80}
+
+"""
+            # Convert Markdown to plain text
+            plain_text = markdown_to_plaintext(article.content_markdown)
+            content = header + plain_text
+
+            # Sanitize filename
+            safe_title = re.sub(r'[^\w\s-]', '', article.title)[:50]
+            filename = f"{article.llm_score:.1f}_{safe_title}.txt"
+
+            # Add to ZIP
+            zip_file.writestr(filename, content)
+
+    # Reset buffer position
+    zip_buffer.seek(0)
+
+    # Clear in_bundle flag
+    await article_repo.clear_bundle_flags()
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=reading_bundle.zip"}
+    )
 ```
 
 ## Error Handling Strategy
@@ -322,8 +447,9 @@ When user requests bundle:
 - If unset, all API endpoints return 401
 - API key checked via Bearer token in Authorization header
 
-**No Auth Mode:**
-- Only enabled when `DANGEROUS_NO_AUTH_MODE=1` is set
+**No Web Auth Mode:**
+- Only enabled when `DANGEROUS_NO_WEB_AUTH_MODE=1` is set
+- Allows web UI access _NOT_ API access.
 - Logs warning on startup
 
 ### Input Validation
@@ -352,39 +478,106 @@ When user requests bundle:
 - Timeout: 30s per article fetch
 - Parallel fetching with concurrency limit (3)
 
+## Technology Stack
+
+### Runtime & Package Management
+- **Python**: 3.12+ (required for latest type system features)
+- **Package manager**: uv (fast dependency resolution)
+- **Project layout**: src/ layout with PEP 723 inline scripts for dev tasks
+
+### Web Framework & API
+- **Framework**: FastAPI (async ASGI, auto OpenAPI docs)
+- **ASGI server**: uvicorn (production server)
+- **Validation**: Pydantic v2 (request/response models, settings)
+- **Templates**: Jinja2 (HTML rendering)
+- **Forms**: python-multipart (multipart/form-data handling)
+
+### Data & Storage
+- **Database**: SQLite (stdlib sqlite3 module, WAL mode)
+- **HTTP client**: httpx (async HTTP, connection pooling)
+
+### Content Processing
+- **RSS parsing**: feedparser (RSS/Atom feed handling)
+- **Content extraction**: readability-lxml (Mozilla Readability port)
+- **LLM integration**: anthropic (Claude API with prompt caching)
+
+### Code Quality
+- **Formatting**: Ruff (format)
+- **Linting**: Ruff (lint)
+- **Type checking**: mypy --strict + pyright strict (both in CI)
+- **Testing**: pytest + pytest-asyncio
+- **Property testing**: hypothesis (where natural fit for domain logic)
+
+### Dev Tooling
+- **Task runner**: ./dev.py (PEP 723 inline script, no external task runner)
+- **Common tasks**: format, lint, typecheck, test, run, migrate
+
 ## Implementation Notes
 
 ### REQ-RC-001: Email Ingestion
-- Location: `src/ingestion/email.py` (or `src/ingestion/email.ts`)
-- Use `imaplib` (Python) or `imap-simple` (Node.js)
-- HTML to Markdown: `html2text` (Python) or `turndown` (Node.js)
+- **Location**: `src/reader/ingestion/email.py`
+- **Libraries**:
+  - `imaplib` (stdlib, IMAP client)
+  - `email` (stdlib, email parsing)
+  - `html2text` or custom HTML→Markdown converter
+- **Data models**: `src/reader/models/article.py` (Pydantic models)
+- **Database**: `src/reader/db/repository.py` (article repository)
 
 ### REQ-RC-002: RSS Ingestion
-- Location: `src/ingestion/rss.py` (or `src/ingestion/rss.ts`)
-- Use `feedparser` (Python) or `rss-parser` (Node.js)
-- Respect `robots.txt` via `robotparser` (Python) or `robots-parser` (Node.js)
+- **Location**: `src/reader/ingestion/rss.py`
+- **Libraries**:
+  - `feedparser` (RSS/Atom parsing)
+  - `httpx` (async article fetching)
+  - `robotparser` (stdlib, robots.txt compliance)
+- **Scheduler**: Background task in FastAPI lifecycle
+- **Rate limiting**: httpx client with custom timeout/retry policies
 
 ### REQ-RC-004: LLM Scoring
-- Location: `src/scoring/llm.py` (or `src/scoring/llm.ts`)
-- Use Anthropic SDK with prompt caching enabled
-- Store prompts in DB for version tracking
+- **Location**: `src/reader/scoring/llm.py`
+- **Libraries**:
+  - `anthropic` (Claude API client)
+  - Pydantic models for JSON schema validation
+- **Prompt management**: `src/reader/scoring/prompts.py`
+- **Caching**: Anthropic prompt caching via `cache_control` parameter
+- **Async**: Use `anthropic.AsyncAnthropic` for non-blocking scoring
 
 ### REQ-RC-006: Content Extraction
-- Location: `src/extraction/readability.py` (or `src/extraction/readability.ts`)
-- Use `readability-lxml` (Python) or `@mozilla/readability` (Node.js)
-- Fallback chain: Readability → BeautifulSoup/cheerio → raw HTML
+- **Location**: `src/reader/extraction/readability.py`
+- **Libraries**:
+  - `readability-lxml` (primary extraction)
+  - `lxml` (HTML parsing, already a readability-lxml dependency)
+- **Fallback chain**: readability-lxml → lxml manual extraction → raw HTML
+- **Markdown conversion**: Custom converter or `markdownify` library
 
 ### REQ-RC-007: Bundle Generation
-- Location: `src/bundle/generator.py` (or `src/bundle/generator.ts`)
-- Markdown to plain text: strip formatting, preserve structure
-- ZIP creation: `zipfile` (Python) or `archiver` (Node.js)
+- **Location**: `src/reader/bundle/generator.py`
+- **Libraries**:
+  - `zipfile` (stdlib, ZIP archive creation)
+  - Custom Markdown→plain text converter (preserve structure)
+- **Output**: In-memory ZIP via `io.BytesIO` for direct streaming
 
 ### REQ-RC-008 through REQ-RC-012: Web UI
-- Location: `src/web/routes.py` (or `src/web/routes.ts`)
-- Templates: `templates/` directory
-- Framework: Flask/Jinja2 (Python) or Express/Handlebars (Node.js)
+- **Location**: `src/reader/web/routes/`
+  - `inbox.py` (article list, scoring display)
+  - `article.py` (single article view)
+  - `archive.py` (search interface)
+  - `stats.py` (eval metrics dashboard)
+  - `settings.py` (feed source management)
+- **Templates**: `src/reader/web/templates/`
+- **Framework**: FastAPI with Jinja2Templates
+- **Static assets**: `src/reader/web/static/`
 
 ### REQ-RC-016: Authentication
-- Location: `src/auth/middleware.py` (or `src/auth/middleware.ts`)
-- Credential storage: `~/.config/reader/auth.db` (separate from main DB)
-- Password hashing: `bcrypt`
+- **Location**: `src/reader/auth/`
+  - `middleware.py` (FastAPI dependency injection)
+  - `credentials.py` (credential generation, storage)
+- **Libraries**:
+  - `secrets` (stdlib, secure token generation)
+  - `passlib[bcrypt]` (password hashing)
+- **Storage**: `~/.config/reader/auth.db` (separate SQLite database)
+- **Implementation**: FastAPI HTTPBasic security scheme + custom API key dependency
+
+### REQ-RC-017, REQ-RC-018: API Endpoints
+- **Location**: `src/reader/web/routes/api.py`
+- **Auth**: FastAPI Depends() with custom API key validator
+- **Rate limiting**: slowapi or custom middleware with in-memory token bucket
