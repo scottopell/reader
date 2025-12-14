@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Self-hosted reading curation system with LLM scoring"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     # Web framework
     "fastapi>=0.115.0",
@@ -28,19 +28,6 @@ dependencies = [
     "markdown>=3.10",
 ]
 
-[project.optional-dependencies]
-dev = [
-    # Formatting & linting
-    "ruff>=0.7.0",
-    # Type checking
-    "mypy>=1.13.0",
-    "pyright>=1.1.389",
-    # Testing
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "hypothesis>=6.115.0",
-]
-
 [project.scripts]
 reader = "reader.cli:main"
 
@@ -54,7 +41,7 @@ packages = ["src/reader"]
 [tool.ruff]
 src = ["src"]
 line-length = 100
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
@@ -86,7 +73,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -108,7 +95,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.pyright]
-pythonVersion = "3.12"
+pythonVersion = "3.13"
 typeCheckingMode = "strict"
 include = ["src"]
 exclude = ["**/__pycache__"]
@@ -125,5 +112,14 @@ filterwarnings = [
 
 [dependency-groups]
 dev = [
+    # Formatting & linting
+    "ruff>=0.7.0",
+    # Type checking
+    "mypy>=1.13.0",
+    "pyright>=1.1.389",
     "types-markdown>=3.10.0.20251106",
+    # Testing
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "hypothesis>=6.115.0",
 ]

@@ -24,7 +24,7 @@ from reader.scoring.prompts import (
 
 
 @pytest.fixture
-def temp_db() -> Generator[str, None, None]:
+def temp_db() -> Generator[str]:
     """Create a temporary database for testing."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -33,7 +33,7 @@ def temp_db() -> Generator[str, None, None]:
 
 
 @pytest.fixture
-def mock_db_path(temp_db: str) -> Generator[str, None, None]:
+def mock_db_path(temp_db: str) -> Generator[str]:
     """Patch the database path to use temp database."""
     with patch("reader.db.connection.get_db_path", return_value=temp_db):
         migrate()
