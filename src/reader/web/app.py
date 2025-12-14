@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from reader.auth.credentials import ensure_credentials
@@ -49,3 +50,9 @@ if STATIC_DIR.exists():
 # Include routers
 app.include_router(inbox.router)
 app.include_router(api.router, prefix="/api")
+
+
+@app.get("/health", response_class=PlainTextResponse)
+async def health() -> str:
+    """Health check endpoint for readiness probes."""
+    return "ok"
