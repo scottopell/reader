@@ -44,7 +44,7 @@ HTTP operations via httpx. Source code follows src/ layout pattern.
 | Requirement | Status | Notes |
 |-------------|--------|-------|
 | **REQ-RC-001:** Discover New Content from Email Newsletters | ⏭️ Stub Only | email.py has TODO comments, no IMAP implementation |
-| **REQ-RC-002:** Discover New Content from RSS Feeds | ⏭️ Stub Only | rss.py has TODO comments, no feedparser integration |
+| **REQ-RC-002:** Discover New Content from RSS Feeds | ✅ Complete | rss.py with feedparser, robots.txt compliance, polite delays, scoring; background workers implemented in app.py |
 | **REQ-RC-003:** Add Articles Manually via URL | ✅ Complete | POST /api/article extracts, scores, and stores articles |
 | **REQ-RC-004:** Understand Relevance of Each Article | ✅ Complete | llm.py with Ollama and Anthropic backends, JSON response parsing |
 | **REQ-RC-005:** Track Scoring Prompt Changes Over Time | ✅ Complete | prompts.py manages versions in DB, seeds default v1, score_article returns version |
@@ -62,4 +62,4 @@ HTTP operations via httpx. Source code follows src/ layout pattern.
 | **REQ-RC-017:** Accept URLs from iOS Shortcuts | ✅ Complete | POST /api/article with full extract→score→store pipeline |
 | **REQ-RC-018:** Download Bundle via API | ✅ Complete | GET /api/bundle endpoint returns ZIP |
 
-**Progress:** 16 of 18 complete (2 stubs: REQ-RC-001 email, REQ-RC-002 RSS)
+**Progress:** 17 of 18 complete (1 stub: REQ-RC-001 email)

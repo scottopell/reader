@@ -25,6 +25,9 @@ Database Commands:
     db-migrate  Run database migrations
     db-reset    Reset database (warning: deletes data)
 
+Ingestion Commands:
+    ingest-rss  Ingest articles from all enabled RSS feeds
+
 Maintenance Commands:
     clean       Stop server and remove all runtime state
     help        Show this help message
@@ -551,6 +554,20 @@ def cmd_db_reset() -> int:
 
 
 # =============================================================================
+# Ingestion Commands (REQ-RC-001, REQ-RC-002)
+# =============================================================================
+
+
+def cmd_ingest_rss() -> int:
+    """Ingest articles from all enabled RSS feeds.
+
+    REQ-RC-002: Discover New Content from RSS Feeds
+    """
+    result = run(["uv", "run", "python", "-m", "reader.ingestion.rss"], check=False)
+    return result.returncode
+
+
+# =============================================================================
 # Maintenance Commands (REQ-DW-013)
 # =============================================================================
 
@@ -662,6 +679,10 @@ def main() -> int:
             return cmd_db_migrate()
         case "db-reset":
             return cmd_db_reset()
+
+        # Ingestion commands
+        case "ingest-rss":
+            return cmd_ingest_rss()
 
         # Maintenance commands
         case "clean":

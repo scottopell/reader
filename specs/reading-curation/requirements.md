@@ -24,16 +24,30 @@ without anti-scraper issues. Email handles paywalled content naturally.
 
 ### REQ-RC-002: Discover New Content from RSS Feeds
 
+WHEN the web application starts
+THE SYSTEM SHALL initialize background workers for RSS and email ingestion
+
 WHEN RSS feed check interval elapses
 THE SYSTEM SHALL poll configured RSS feeds for new entries
+
+WHEN a feed source check interval elapses
+THE SYSTEM SHALL execute ingestion for that source without blocking web requests
 
 WHEN RSS entry lacks full content
 THE SYSTEM SHALL fetch the linked article URL
 
 THE SYSTEM SHALL respect robots.txt and use polite crawling (1-5s delays)
 
-**Rationale:** Users want blog content from sources without email subscriptions.
-Polite crawling maintains access.
+WHEN background ingestion encounters errors
+THE SYSTEM SHALL log error details and continue processing other sources
+
+WHEN the web application shuts down
+THE SYSTEM SHALL gracefully stop background workers
+
+**Rationale:** Users want blog content from sources without email subscriptions
+delivered automatically without manual intervention. Background workers enable
+periodic ingestion while keeping the web interface responsive, and polite
+crawling maintains access.
 
 ---
 

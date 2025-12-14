@@ -179,11 +179,6 @@ def test_req_rc_004_article_scoring():
 2. Set `is_active = 1` for new version
 3. Old scores retain their `prompt_version` reference (REQ-RC-005)
 
-### Running background jobs
-
-Ingestion and scoring run on a schedule (systemd timer or cron). The web server
-does not run these - they are separate processes.
-
 ## Development Workflow
 
 ### Setup

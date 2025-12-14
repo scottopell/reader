@@ -2,8 +2,11 @@
 
 REQ-RC-008 through REQ-RC-015: Web UI
 REQ-RC-017, REQ-RC-018: API endpoints
+REQ-RC-002: Background ingestion workers
 """
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,9 +15,35 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from reader.auth.credentials import ensure_credentials
+from reader.config import get_settings
 from reader.db.migrate import migrate
+from reader.ingestion.rss import ingest_all_rss
 from reader.web.routes import api, inbox
 from reader.web.templates_config import STATIC_DIR
+
+logger = logging.getLogger(__name__)
+
+# Global set to track background tasks (prevent garbage collection)
+background_tasks: set[asyncio.Task[None]] = set()
+
+
+async def periodic_rss_ingestion() -> None:
+    """REQ-RC-002: Background worker for RSS feed ingestion."""
+    settings = get_settings()
+    logger.info("Starting RSS ingestion background worker")
+
+    while True:
+        try:
+            logger.info("Running scheduled RSS ingestion")
+            await ingest_all_rss()
+        except asyncio.CancelledError:
+            logger.info("RSS ingestion worker cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"RSS ingestion failed: {e}", exc_info=True)
+
+        # Sleep until next check
+        await asyncio.sleep(settings.rss_check_interval_seconds)
 
 
 @asynccontextmanager
@@ -33,7 +62,26 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         print(f"  Password: {password}")
         print("=" * 60 + "\n")
 
+    # REQ-RC-002: Start background ingestion workers
+    logger.info("Starting background ingestion workers")
+    rss_task = asyncio.create_task(periodic_rss_ingestion())
+
+    # Track tasks to prevent garbage collection
+    background_tasks.add(rss_task)
+
+    # Add done callback for cleanup
+    rss_task.add_done_callback(background_tasks.discard)
+
     yield
+
+    # REQ-RC-002: Shutdown background workers gracefully
+    logger.info("Stopping background ingestion workers")
+    for task in background_tasks:
+        task.cancel()
+
+    # Wait for tasks to complete cancellation
+    await asyncio.gather(*background_tasks, return_exceptions=True)
+    logger.info("All background workers stopped")
 
 
 app = FastAPI(

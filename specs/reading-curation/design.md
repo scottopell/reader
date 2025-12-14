@@ -294,49 +294,141 @@ async def ingest_emails():
     await score_unscored_articles()
 ```
 
+### Background Worker Lifecycle (REQ-RC-002)
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import asyncio
+
+# Global state for background tasks
+background_tasks: set[asyncio.Task] = set()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage background worker lifecycle aligned with FastAPI startup/shutdown."""
+    # Startup: Initialize background workers
+    logger.info("Starting background ingestion workers")
+
+    # Create background tasks
+    rss_task = asyncio.create_task(periodic_rss_ingestion())
+    email_task = asyncio.create_task(periodic_email_ingestion())
+
+    # Track tasks to prevent garbage collection
+    background_tasks.add(rss_task)
+    background_tasks.add(email_task)
+
+    # Add done callbacks for cleanup
+    rss_task.add_done_callback(background_tasks.discard)
+    email_task.add_done_callback(background_tasks.discard)
+
+    yield  # Application runs
+
+    # Shutdown: Cancel background workers gracefully
+    logger.info("Stopping background ingestion workers")
+    for task in background_tasks:
+        task.cancel()
+
+    # Wait for tasks to complete cancellation
+    await asyncio.gather(*background_tasks, return_exceptions=True)
+    logger.info("All background workers stopped")
+
+# Create FastAPI app with lifespan
+app = FastAPI(lifespan=lifespan)
+
+async def periodic_rss_ingestion():
+    """REQ-RC-002: Background worker for RSS feed ingestion."""
+    while True:
+        try:
+            await ingest_rss()
+        except asyncio.CancelledError:
+            logger.info("RSS ingestion worker cancelled")
+            raise  # Re-raise to allow proper cleanup
+        except Exception as e:
+            logger.error(f"RSS ingestion failed: {e}", exc_info=True)
+            # Continue processing - don't crash the worker
+
+        # Sleep until next check (default 2 hours)
+        await asyncio.sleep(settings.rss_check_interval_seconds)
+
+async def periodic_email_ingestion():
+    """REQ-RC-002: Background worker for email ingestion."""
+    while True:
+        try:
+            await ingest_emails()
+        except asyncio.CancelledError:
+            logger.info("Email ingestion worker cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Email ingestion failed: {e}", exc_info=True)
+
+        await asyncio.sleep(settings.email_check_interval_seconds)
+```
+
 ### RSS Ingestion Flow (REQ-RC-002)
 
 ```python
-# Background task scheduled every 6 hours (configurable)
 async def ingest_rss():
+    """Ingest articles from enabled RSS sources."""
     sources = await get_enabled_rss_sources()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for source in sources:
-            # Fetch and parse RSS feed
-            feed = feedparser.parse(source.url)
+            # REQ-RC-002: Check source-specific interval
+            if not should_check_source(source):
+                continue
 
-            for entry in feed.entries:
-                # Skip if already in database
-                if await article_repo.exists_by_url(entry.link):
-                    continue
+            try:
+                # Fetch and parse RSS feed
+                feed = feedparser.parse(source.url)
 
-                # Extract content
-                if hasattr(entry, 'content') and entry.content:
-                    # Full content in feed
-                    html = entry.content[0].value
-                    markdown = html_to_markdown(html)
-                else:
-                    # Fetch article URL with polite delay
-                    await asyncio.sleep(random.uniform(1.0, 5.0))
-                    response = await client.get(entry.link)
+                for entry in feed.entries:
+                    # Skip if already in database
+                    if await article_repo.exists_by_url(entry.link):
+                        continue
 
-                    # Apply Readability extraction
-                    doc = readability.Document(response.text)
-                    html = doc.summary()
-                    markdown = html_to_markdown(html)
+                    # Extract content
+                    if hasattr(entry, 'content') and entry.content:
+                        # Full content in feed
+                        html = entry.content[0].value
+                        markdown = html_to_markdown(html)
+                    else:
+                        # Fetch article URL with polite delay
+                        await asyncio.sleep(random.uniform(1.0, 5.0))
+                        response = await client.get(entry.link)
 
-                # Insert article
-                await article_repo.create(
-                    source=f'rss:{source.url}',
-                    title=entry.title,
-                    url=entry.link,
-                    author=entry.get('author'),
-                    content_markdown=markdown
-                )
+                        # Apply Readability extraction
+                        doc = readability.Document(response.text)
+                        html = doc.summary()
+                        markdown = html_to_markdown(html)
+
+                    # Insert article
+                    await article_repo.create(
+                        source=f'rss:{source.url}',
+                        title=entry.title,
+                        url=entry.link,
+                        author=entry.get('author'),
+                        content_markdown=markdown
+                    )
+
+                # Update last_checked timestamp
+                await update_source_check_time(source.id)
+
+            except Exception as e:
+                # REQ-RC-002: Log but don't crash - continue with other sources
+                logger.error(f"Failed to ingest RSS source {source.url}: {e}")
+                continue
 
     # Trigger scoring for unscored articles
     await score_unscored_articles()
+
+def should_check_source(source) -> bool:
+    """REQ-RC-002: Respect per-source check_interval_hours setting."""
+    if source.last_checked is None:
+        return True
+
+    elapsed_hours = (datetime.utcnow() - source.last_checked).total_seconds() / 3600
+    return elapsed_hours >= source.check_interval_hours
 ```
 
 ### LLM Scoring Flow (REQ-RC-004, REQ-RC-005)
@@ -575,6 +667,20 @@ Reading Time: {article.reading_time_category}
   - `robotparser` (stdlib, robots.txt compliance)
 - **Scheduler**: Background task in FastAPI lifecycle
 - **Rate limiting**: httpx client with custom timeout/retry policies
+
+### REQ-RC-002: Background Worker Lifecycle
+
+- **Location**: `src/reader/web/app.py` (lifespan context manager)
+- **Pattern**: FastAPI lifespan with asyncio.create_task for workers
+- **Libraries**:
+  - `asyncio` (stdlib, task management)
+  - `contextlib.asynccontextmanager` (stdlib, lifespan pattern)
+- **Configuration**:
+  - `RSS_CHECK_INTERVAL_SECONDS` (default: 7200, 2 hours)
+  - `EMAIL_CHECK_INTERVAL_SECONDS` (default: 7200, 2 hours)
+- **Error handling**: Try-except in worker loop, log errors but continue
+- **Shutdown**: Task cancellation with asyncio.gather for graceful cleanup
+- **Task tracking**: Global set to prevent garbage collection of tasks
 
 ### REQ-RC-004: LLM Scoring
 

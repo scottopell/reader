@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod:*)",
+      "Bash(uv sync:*)",
+      "Bash(./dev.py fmt:*)",
+      "Bash(uv run ruff format:*)",
+      "Bash(uv pip install:*)",
+      "Bash(./dev.py lint:*)",
+      "Bash(./dev.py typecheck:*)",
+      "Bash(./dev.py check:*)",
+      "Bash(./dev.py test:*)",
+      "Bash(./dev.py serve:*)",
+      "Bash(sqlite3:*)",
+      "Bash(cat:*)",
+      "Bash(python3 -c \"\nimport bcrypt\npassword = ''reader123''\npassword_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()\nprint(f''Password hash: {password_hash}'')\nimport sqlite3\nimport os\ndb_path = os.path.expanduser(''~/.config/reader/reader.db'')\nconn = sqlite3.connect(db_path)\nconn.execute(''UPDATE auth_config SET value = ? WHERE key = ?'', (password_hash, ''password_hash''))\nconn.execute(''UPDATE auth_config SET value = ? WHERE key = ?'', (''admin'', ''username''))\nconn.commit()\nprint(''Set credentials to admin / reader123'')\n\")",
+      "Bash(uv run python -c \"\nimport bcrypt\npassword = ''reader123''\npassword_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()\nimport sqlite3\nimport os\ndb_path = os.path.expanduser(''~/.config/reader/reader.db'')\nconn = sqlite3.connect(db_path)\nconn.execute(''UPDATE auth_config SET value = ? WHERE key = ?'', (password_hash, ''password_hash''))\nconn.execute(''UPDATE auth_config SET value = ? WHERE key = ?'', (''admin'', ''username''))\nconn.commit()\nprint(''Set credentials to admin / reader123'')\n\")",
+      "Bash(READER_API_KEY=test123 READER_LLM_BACKEND=ollama ./dev.py:*)",
+      "Bash(curl:*)",
+      "Bash(uv add:*)",
+      "Bash(git add:*)",
+      "Bash(mkdir:*)",
+      "Bash(./dev.py help:*)",
+      "Bash(./dev.py start:*)",
+      "Bash(./dev.py logs:*)",
+      "Bash(./dev.py restart:*)",
+      "Bash(READER_DANGEROUS_NO_WEB_AUTH_MODE=1 uv run python:*)",
+      "WebSearch",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_take_screenshot",
+      "Bash(./dev.py:*)",
+      "Bash(git grep:*)"
+    ]
+  }
+}

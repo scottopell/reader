@@ -39,6 +39,16 @@ class ArticleRepository:
             conn.commit()
             return cursor.lastrowid or 0
 
+    # REQ-RC-002: Check if article exists by URL (avoid re-ingesting)
+    def exists_by_url(self, url: str) -> bool:
+        """Check if an article with this URL already exists."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM articles WHERE url = ? LIMIT 1",
+                (url,),
+            ).fetchone()
+            return row is not None
+
     # REQ-RC-010: Get single article by ID
     def get_by_id(self, article_id: int) -> Article | None:
         """Get a single article by ID."""

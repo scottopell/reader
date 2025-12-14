@@ -66,6 +66,16 @@ class Settings(BaseSettings):
         description="Disable web UI authentication (DANGEROUS, dev only)",
     )
 
+    # Background ingestion (REQ-RC-002)
+    rss_check_interval_seconds: int = Field(
+        default=7200,  # 2 hours
+        description="Interval between RSS feed checks in seconds",
+    )
+    email_check_interval_seconds: int = Field(
+        default=7200,  # 2 hours
+        description="Interval between email checks in seconds",
+    )
+
     # Server
     host: str = Field(default="127.0.0.1", description="Server host")
     port: int = Field(default=8000, description="Server port")
