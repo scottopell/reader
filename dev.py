@@ -18,11 +18,13 @@ Server Commands:
     serve       Start server in foreground (blocking)
 
 Quality Commands:
-    fmt         Format code with ruff (--check to verify only)
-    lint        Lint code with ruff (--fix to auto-fix)
-    typecheck   Run mypy and pyright
-    test        Run pytest (pass additional args after)
-    check       Run fmt --check, lint, and typecheck
+    fmt [target]    Format code (--check to verify only)
+                    target: python, markdown, all (default: all)
+    lint [target]   Lint code (--fix for python auto-fix)
+                    target: python, markdown, all (default: all)
+    typecheck       Run mypy and pyright
+    test            Run pytest (pass additional args after)
+    check           Run fmt --check, lint, and typecheck
 
 Database Commands:
     db-migrate  Run database migrations
@@ -394,11 +396,8 @@ def cmd_serve(host: str = "127.0.0.1", port: int | None = None, reload: bool = T
 # =============================================================================
 
 
-def cmd_fmt(check: bool = False) -> int:
-    """Format code with ruff.
-
-    REQ-DW-006: Format Code Consistently
-    """
+def cmd_fmt_python(check: bool = False) -> int:
+    """Format Python code with ruff."""
     args = ["uv", "run", "ruff", "format"]
     if check:
         args.append("--check")
@@ -407,17 +406,67 @@ def cmd_fmt(check: bool = False) -> int:
     return result.returncode
 
 
-def cmd_lint(fix: bool = False) -> int:
-    """Lint code with ruff.
+def cmd_fmt_markdown(check: bool = False) -> int:
+    """Format Markdown files with rumdl."""
+    args = ["uvx", "rumdl", "check", "."] if check else ["uvx", "rumdl", "fmt", "."]
+    result = run(args, check=False)
+    return result.returncode
 
-    REQ-DW-007: Catch Code Quality Issues Early
+
+def cmd_fmt(target: str = "all", check: bool = False) -> int:
+    """Format code with ruff and rumdl.
+
+    REQ-DW-006: Format Code Consistently
     """
+    if target == "python":
+        return cmd_fmt_python(check=check)
+    elif target == "markdown":
+        return cmd_fmt_markdown(check=check)
+    else:  # all
+        print("=== Formatting Python ===")
+        python_rc = cmd_fmt_python(check=check)
+        print("\n=== Formatting Markdown ===")
+        markdown_rc = cmd_fmt_markdown(check=check)
+        if python_rc != 0 or markdown_rc != 0:
+            return 1
+        return 0
+
+
+def cmd_lint_python(fix: bool = False) -> int:
+    """Lint Python code with ruff."""
     args = ["uv", "run", "ruff", "check"]
     if fix:
         args.append("--fix")
     args.append(".")
     result = run(args, check=False)
     return result.returncode
+
+
+def cmd_lint_markdown() -> int:
+    """Lint Markdown files with rumdl."""
+    result = run(["uvx", "rumdl", "check", "."], check=False)
+    if result.returncode != 0:
+        print("Run './dev.py fmt markdown' to auto-fix")
+    return result.returncode
+
+
+def cmd_lint(target: str = "all", fix: bool = False) -> int:
+    """Lint code with ruff and rumdl.
+
+    REQ-DW-007: Catch Code Quality Issues Early
+    """
+    if target == "python":
+        return cmd_lint_python(fix=fix)
+    elif target == "markdown":
+        return cmd_lint_markdown()
+    else:  # all
+        print("=== Linting Python ===")
+        python_rc = cmd_lint_python(fix=fix)
+        print("\n=== Linting Markdown ===")
+        markdown_rc = cmd_lint_markdown()
+        if python_rc != 0 or markdown_rc != 0:
+            return 1
+        return 0
 
 
 def cmd_typecheck() -> int:
@@ -453,16 +502,22 @@ def cmd_check() -> int:
 
     REQ-DW-010: Verify All Quality Checks Pass
     """
-    print("=== Checking format ===")
-    fmt_rc = cmd_fmt(check=True)
+    print("=== Checking Python format ===")
+    py_fmt_rc = cmd_fmt_python(check=True)
 
-    print("\n=== Checking lint ===")
-    lint_rc = cmd_lint()
+    print("\n=== Checking Markdown format ===")
+    md_fmt_rc = cmd_fmt_markdown(check=True)
+
+    print("\n=== Linting Python ===")
+    py_lint_rc = cmd_lint_python()
+
+    print("\n=== Linting Markdown ===")
+    md_lint_rc = cmd_lint_markdown()
 
     print("\n=== Checking types ===")
     type_rc = cmd_typecheck()
 
-    if fmt_rc != 0 or lint_rc != 0 or type_rc != 0:
+    if any([py_fmt_rc, md_fmt_rc, py_lint_rc, md_lint_rc, type_rc]):
         print("\n✗ Some checks failed")
         return 1
 
@@ -583,10 +638,22 @@ def main() -> int:
         # Quality commands
         case "fmt":
             check = "--check" in args
-            return cmd_fmt(check=check)
+            # Find target (python, markdown, all)
+            target = "all"
+            for arg in args:
+                if arg in ("python", "markdown", "all"):
+                    target = arg
+                    break
+            return cmd_fmt(target=target, check=check)
         case "lint":
             fix = "--fix" in args
-            return cmd_lint(fix=fix)
+            # Find target (python, markdown, all)
+            target = "all"
+            for arg in args:
+                if arg in ("python", "markdown", "all"):
+                    target = arg
+                    break
+            return cmd_lint(target=target, fix=fix)
         case "typecheck":
             return cmd_typecheck()
         case "test":

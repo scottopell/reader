@@ -198,7 +198,16 @@ Response: HTML page with source list and add/edit forms.
 
 Add or update feed source.
 
-Body: `{ "type": "email" | "rss", "identifier": "...", "display_name": "...", "enabled": true }`
+Body:
+
+```json
+{
+  "type": "email" | "rss",
+  "identifier": "...",
+  "display_name": "...",
+  "enabled": true
+}
+```
 
 ### API Endpoints (API Key Required)
 
