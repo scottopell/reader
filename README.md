@@ -66,7 +66,7 @@ cd reader
 | `IMAP_USER` | No | Email username |
 | `IMAP_PASS` | No | Email password |
 | `API_KEY` | No | API key for iOS Shortcuts. If unset, API endpoints disabled |
-| `DANGEROUS_NO_AUTH_MODE` | No | Set to `1` to disable authentication (dev only) |
+| `READER_DANGEROUS_NO_WEB_AUTH_MODE` | No | Set to `1` to disable authentication (dev only) |
 
 ### Database
 
