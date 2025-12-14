@@ -1,0 +1,66 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python cache and environments
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv/
+env/
+.egg-info/
+dist/
+build/
+*.egg
+
+# Testing and coverage
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+
+# Type checking
+.mypy_cache
+.pyright_cache
+.dmypy.json
+dmypy.json
+
+# IDE and editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Development
+.env
+.env.local
+docker-compose.override.yml
+example-docker-compose.yml
+
+# Documentation and specs (not needed in production)
+# NOTE: README.md is required for building, don't exclude it
+docs/
+specs/
+*.md
+!README.md
+
+# Node/frontend (if any)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Local config
+.claude/
+.playwright-mcp/
+
+# Build artifacts
+*.tar.gz
+*.zip

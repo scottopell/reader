@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  reader:
+    container_name: reader
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - web
+    ports:
+      - "8000:8000"
+    volumes:
+      - reader_data:/data
+    environment:
+      # Server configuration
+      READER_HOST: "0.0.0.0"
+      READER_PORT: "8000"
+      READER_DB_PATH: "/data/reader.db"
+
+      # LLM configuration (REQUIRED - choose one)
+      # For Anthropic (Claude)
+      READER_LLM_BACKEND: "anthropic"
+      READER_ANTHROPIC_API_KEY: "sk-ant-YOUR-API-KEY-HERE"
+      READER_ANTHROPIC_MODEL: "claude-sonnet-4-20250514"
+
+      # For Ollama (local LLM) - uncomment to use instead
+      # READER_LLM_BACKEND: "ollama"
+      # READER_OLLAMA_BASE_URL: "http://ollama:11434"  # or wherever Ollama is hosted
+      # READER_OLLAMA_MODEL: "llama3.2"
+
+      # Authentication (secure by default)
+      READER_DANGEROUS_NO_WEB_AUTH_MODE: "0"
+
+      # Optional: API key for iOS Shortcuts / Mailgun webhooks
+      # READER_API_KEY: "your-api-key-here"
+
+      # Optional: Email ingestion (IMAP)
+      # READER_IMAP_HOST: "imap.gmail.com"
+      # READER_IMAP_USER: "your-email@gmail.com"
+      # READER_IMAP_PASS: "your-app-password"
+
+      # Background ingestion intervals (in seconds)
+      READER_RSS_CHECK_INTERVAL_SECONDS: "7200"  # 2 hours
+      READER_EMAIL_CHECK_INTERVAL_SECONDS: "7200"  # 2 hours
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  reader_data:
+    driver: local
+
+networks:
+  web:
+    driver: bridge
+    # If integrating with existing cloudflared tunnel, use:
+    # external: true
