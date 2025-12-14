@@ -23,6 +23,7 @@ class ScoringResponse(BaseModel):
     reasoning: str = Field(description="Brief explanation of score")
     reading_time: ReadingTimeCategory = Field(description="Estimated reading time")
     tags: list[str] = Field(default_factory=list, max_length=5, description="Suggested tags")
+    prompt_version: str = Field(description="Prompt version used for this scoring")
 
 
 class PromptVersion(BaseModel):

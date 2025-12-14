@@ -1,4 +1,4 @@
-"""Article repository for database operations."""
+"""Repository for database operations."""
 
 import json
 import sqlite3
@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from reader.db.connection import get_connection
 from reader.models.article import Article, ArticleCreate, ArticleScore, UserDecision
+from reader.models.source import FeedSource, FeedSourceCreate, SourceType
 
 
 class ArticleRepository:
@@ -211,6 +212,76 @@ class ArticleRepository:
             conn.execute("UPDATE articles SET in_bundle = 0, bundle_added_at = NULL")
             conn.commit()
 
+    # REQ-RC-013: Stats calculation
+    def get_stats(self) -> dict[str, float | int]:
+        """Calculate precision and recall metrics.
+
+        REQ-RC-013: WHEN user accesses the stats page
+        THE SYSTEM SHALL display precision (% of sent articles actually read)
+        THE SYSTEM SHALL display recall (% of read articles that were auto-recommended)
+
+        Returns:
+            Dict with precision, recall, total_articles, and decision counts
+        """
+        with get_connection() as conn:
+            # Get median score for "recommended" threshold
+            median_row = conn.execute(
+                "SELECT AVG(llm_score) as median FROM articles WHERE llm_score IS NOT NULL"
+            ).fetchone()
+            median_score = median_row["median"] if median_row and median_row["median"] else 5.0
+
+            # Total articles with decisions
+            total = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE llm_score IS NOT NULL"
+            ).fetchone()["c"]
+
+            # Articles by decision
+            read_count = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE user_decision = 'read'"
+            ).fetchone()["c"]
+
+            sent_count = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE user_decision = 'sent'"
+            ).fetchone()["c"]
+
+            skipped_count = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE user_decision = 'skipped'"
+            ).fetchone()["c"]
+
+            pending_count = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE user_decision = 'pending'"
+            ).fetchone()["c"]
+
+            # Recommended = scored at or above median
+            recommended = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE llm_score >= ?",
+                (median_score,),
+            ).fetchone()["c"]
+
+            # Read that were recommended
+            read_and_recommended = conn.execute(
+                "SELECT COUNT(*) as c FROM articles WHERE user_decision = 'read' AND llm_score >= ?",
+                (median_score,),
+            ).fetchone()["c"]
+
+            # Precision: of recommended, how many read?
+            precision = (read_and_recommended / recommended * 100) if recommended > 0 else 0.0
+
+            # Recall: of read, how many were recommended?
+            recall = (read_and_recommended / read_count * 100) if read_count > 0 else 0.0
+
+            return {
+                "precision": round(precision, 1),
+                "recall": round(recall, 1),
+                "total_articles": total,
+                "read_count": read_count,
+                "sent_count": sent_count,
+                "skipped_count": skipped_count,
+                "pending_count": pending_count,
+                "recommended_count": recommended,
+                "median_score": round(median_score, 1),
+            }
+
     def _row_to_article(self, row: sqlite3.Row) -> Article:
         """Convert a database row to an Article model."""
         tags: list[str] = json.loads(row["tags"]) if row["tags"] else []
@@ -238,4 +309,92 @@ class ArticleRepository:
             ),
             extraction_status=row["extraction_status"],
             extraction_error=row["extraction_error"],
+        )
+
+
+class FeedSourceRepository:
+    """Repository for feed source CRUD operations.
+
+    REQ-RC-015: Manage Content Sources
+    """
+
+    def create(self, source: FeedSourceCreate) -> int:
+        """Create a new feed source and return its ID."""
+        with get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO feed_sources (type, identifier, display_name, enabled, check_interval_hours, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source.type.value,
+                    source.identifier,
+                    source.display_name,
+                    int(source.enabled),
+                    source.check_interval_hours,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+
+    def get_all(self) -> list[FeedSource]:
+        """Get all feed sources."""
+        with get_connection() as conn:
+            rows = conn.execute("SELECT * FROM feed_sources ORDER BY created_at DESC").fetchall()
+            return [self._row_to_source(row) for row in rows]
+
+    def get_by_id(self, source_id: int) -> FeedSource | None:
+        """Get a single feed source by ID."""
+        with get_connection() as conn:
+            row = conn.execute("SELECT * FROM feed_sources WHERE id = ?", (source_id,)).fetchone()
+            if row:
+                return self._row_to_source(row)
+            return None
+
+    def get_enabled(self) -> list[FeedSource]:
+        """Get all enabled feed sources."""
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM feed_sources WHERE enabled = 1 ORDER BY type, display_name"
+            ).fetchall()
+            return [self._row_to_source(row) for row in rows]
+
+    def toggle_enabled(self, source_id: int) -> None:
+        """Toggle the enabled status of a feed source."""
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE feed_sources SET enabled = NOT enabled WHERE id = ?",
+                (source_id,),
+            )
+            conn.commit()
+
+    def delete(self, source_id: int) -> None:
+        """Delete a feed source."""
+        with get_connection() as conn:
+            conn.execute("DELETE FROM feed_sources WHERE id = ?", (source_id,))
+            conn.commit()
+
+    def update_last_checked(self, source_id: int) -> None:
+        """Update the last_checked timestamp."""
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE feed_sources SET last_checked = ? WHERE id = ?",
+                (datetime.now(UTC).isoformat(), source_id),
+            )
+            conn.commit()
+
+    def _row_to_source(self, row: sqlite3.Row) -> FeedSource:
+        """Convert a database row to a FeedSource model."""
+        return FeedSource(
+            id=row["id"],
+            type=SourceType(row["type"]),
+            identifier=row["identifier"],
+            display_name=row["display_name"],
+            enabled=bool(row["enabled"]),
+            check_interval_hours=row["check_interval_hours"],
+            last_checked=(
+                datetime.fromisoformat(row["last_checked"]) if row["last_checked"] else None
+            ),
+            created_at=datetime.fromisoformat(row["created_at"]),
         )

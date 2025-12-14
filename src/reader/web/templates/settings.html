@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reader - Settings</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 { margin: 0; }
+        .back-link {
+            padding: 8px 16px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+        .back-link:hover { background: #545b62; }
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .section h2 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 12px;
+        }
+        .add-form {
+            display: grid;
+            gap: 12px;
+        }
+        .form-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+        .form-group {
+            flex: 1;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .add-btn {
+            padding: 8px 20px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        .add-btn:hover { background: #218838; }
+        .source-list {
+            margin-top: 20px;
+        }
+        .source-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .source-item:last-child { border-bottom: none; }
+        .source-info {
+            flex: 1;
+        }
+        .source-name {
+            font-weight: 600;
+            color: #333;
+        }
+        .source-identifier {
+            font-size: 13px;
+            color: #666;
+            margin-top: 2px;
+            word-break: break-all;
+        }
+        .source-type {
+            display: inline-block;
+            background: #e9ecef;
+            color: #495057;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+        .source-type.rss { background: #ffeeba; color: #856404; }
+        .source-type.email { background: #bee5eb; color: #0c5460; }
+        .source-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .toggle-btn,
+        .delete-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .toggle-btn {
+            background: #007bff;
+            color: white;
+        }
+        .toggle-btn:hover { background: #0056b3; }
+        .toggle-btn.disabled {
+            background: #6c757d;
+        }
+        .toggle-btn.disabled:hover { background: #545b62; }
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+        }
+        .delete-btn:hover { background: #c82333; }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        .help-text {
+            font-size: 13px;
+            color: #666;
+            margin-top: 12px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Settings</h1>
+        <a href="/" class="back-link">Back to Inbox</a>
+    </header>
+
+    <div class="section">
+        <h2>Add Feed Source</h2>
+        <form action="/settings/source" method="post" class="add-form">
+            <div class="form-row">
+                <div class="form-group" style="flex: 0 0 120px;">
+                    <label for="source_type">Type</label>
+                    <select name="source_type" id="source_type">
+                        <option value="rss">RSS Feed</option>
+                        <option value="email">Email</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="identifier">URL or Email Pattern</label>
+                    <input type="text" name="identifier" id="identifier" placeholder="https://example.com/feed.xml or @newsletter.com" required>
+                </div>
+                <div class="form-group" style="flex: 0 0 200px;">
+                    <label for="display_name">Display Name (optional)</label>
+                    <input type="text" name="display_name" id="display_name" placeholder="My Favorite Blog">
+                </div>
+                <button type="submit" class="add-btn">Add</button>
+            </div>
+        </form>
+        <div class="help-text">
+            <strong>RSS:</strong> Enter the full URL of an RSS or Atom feed.<br>
+            <strong>Email:</strong> Enter a sender pattern like <code>@substack.com</code> or <code>newsletter@example.com</code>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Feed Sources</h2>
+        {% if sources %}
+        <div class="source-list">
+            {% for source in sources %}
+            <div class="source-item">
+                <div class="source-info">
+                    <div>
+                        <span class="source-type {{ source.type.value }}">{{ source.type.value }}</span>
+                        <span class="source-name">{{ source.display_name or source.identifier }}</span>
+                        {% if not source.enabled %}
+                        <span style="color: #dc3545; font-size: 12px;">(disabled)</span>
+                        {% endif %}
+                    </div>
+                    {% if source.display_name %}
+                    <div class="source-identifier">{{ source.identifier }}</div>
+                    {% endif %}
+                </div>
+                <div class="source-actions">
+                    <form action="/settings/source/{{ source.id }}/toggle" method="post" style="display: inline;">
+                        <button type="submit" class="toggle-btn {% if not source.enabled %}disabled{% endif %}">
+                            {% if source.enabled %}Disable{% else %}Enable{% endif %}
+                        </button>
+                    </form>
+                    <form action="/settings/source/{{ source.id }}/delete" method="post" style="display: inline;"
+                          onsubmit="return confirm('Delete this source?');">
+                        <button type="submit" class="delete-btn">Delete</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <p>No feed sources configured yet.</p>
+            <p>Add an RSS feed URL or email pattern above to get started.</p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

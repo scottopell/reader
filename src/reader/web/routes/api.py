@@ -107,12 +107,13 @@ async def submit_article(
         scoring_response = await score_article(scoring_request)
 
         # Update article with score
+        # REQ-RC-005: Track which prompt version scored this article
         score_data = ArticleScore(
             llm_score=scoring_response.score,
             llm_reasoning=scoring_response.reasoning,
             reading_time_category=scoring_response.reading_time,
             tags=scoring_response.tags,
-            prompt_version="v1",  # TODO: Get from prompt versioning system
+            prompt_version=scoring_response.prompt_version,
         )
         repo.update_score(article_id, score_data)
         logger.info("Scored article %d: %.1f", article_id, scoring_response.score)

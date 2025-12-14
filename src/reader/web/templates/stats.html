@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reader - Stats</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 { margin: 0; }
+        .back-link {
+            padding: 8px 16px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+        .back-link:hover { background: #545b62; }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .metric-value.good { color: #28a745; }
+        .metric-value.warn { color: #ffc107; }
+        .metric-value.bad { color: #dc3545; }
+        .metric-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 8px;
+        }
+        .metric-description {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 16px;
+        }
+        .section h2 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #333;
+        }
+        .decision-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .decision-row:last-child { border-bottom: none; }
+        .decision-label { color: #666; }
+        .decision-value { font-weight: 600; }
+        .info-text {
+            font-size: 14px;
+            color: #666;
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Scoring Stats</h1>
+        <a href="/" class="back-link">Back to Inbox</a>
+    </header>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-value {% if stats.precision >= 70 %}good{% elif stats.precision >= 40 %}warn{% else %}bad{% endif %}">
+                {{ stats.precision }}%
+            </div>
+            <div class="metric-label">Precision</div>
+            <div class="metric-description">Of recommended articles, % you read</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value {% if stats.recall >= 70 %}good{% elif stats.recall >= 40 %}warn{% else %}bad{% endif %}">
+                {{ stats.recall }}%
+            </div>
+            <div class="metric-label">Recall</div>
+            <div class="metric-description">Of articles you read, % we recommended</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">{{ stats.median_score }}</div>
+            <div class="metric-label">Median Score</div>
+            <div class="metric-description">Threshold for recommendations</div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Article Decisions</h2>
+        <div class="decision-row">
+            <span class="decision-label">Read</span>
+            <span class="decision-value">{{ stats.read_count }}</span>
+        </div>
+        <div class="decision-row">
+            <span class="decision-label">Sent to Device</span>
+            <span class="decision-value">{{ stats.sent_count }}</span>
+        </div>
+        <div class="decision-row">
+            <span class="decision-label">Skipped</span>
+            <span class="decision-value">{{ stats.skipped_count }}</span>
+        </div>
+        <div class="decision-row">
+            <span class="decision-label">Pending</span>
+            <span class="decision-value">{{ stats.pending_count }}</span>
+        </div>
+        <div class="decision-row">
+            <span class="decision-label">Recommended (above median)</span>
+            <span class="decision-value">{{ stats.recommended_count }}</span>
+        </div>
+        <div class="decision-row">
+            <span class="decision-label"><strong>Total Articles</strong></span>
+            <span class="decision-value"><strong>{{ stats.total_articles }}</strong></span>
+        </div>
+    </div>
+
+    <div class="info-text">
+        <strong>How to interpret:</strong> High precision means the LLM is good at identifying articles you'll read.
+        High recall means you're not missing good articles that score below the threshold.
+        If recall is low, consider using "Show All" more often or adjusting the scoring prompt.
+    </div>
+</body>
+</html>

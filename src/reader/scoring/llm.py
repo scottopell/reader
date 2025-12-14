@@ -13,7 +13,7 @@ from anthropic import Anthropic
 from reader.config import LLMBackend, get_settings
 from reader.models.article import ReadingTimeCategory
 from reader.models.scoring import ScoringRequest, ScoringResponse
-from reader.scoring.prompts import DEFAULT_PROMPT
+from reader.scoring.prompts import get_active_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +25,20 @@ class ScoringError(Exception):
     """Error during article scoring."""
 
 
-def _build_prompt(request: ScoringRequest) -> str:
+def _build_prompt(request: ScoringRequest, prompt_template: str) -> str:
     """Build the scoring prompt from template and request."""
-    return DEFAULT_PROMPT.format(
+    return prompt_template.format(
         title=request.title,
         source=request.source,
         content_preview=request.content_preview,
     )
 
 
-def _parse_response(text: str) -> ScoringResponse:
-    """Parse LLM response JSON into ScoringResponse."""
+def _parse_response(text: str, prompt_version: str) -> ScoringResponse:
+    """Parse LLM response JSON into ScoringResponse.
+
+    REQ-RC-005: Include prompt version used for scoring.
+    """
     # Find JSON in response (may have surrounding text)
     start = text.find("{")
     end = text.rfind("}") + 1
@@ -64,6 +67,7 @@ def _parse_response(text: str) -> ScoringResponse:
         reasoning=data.get("reasoning", "No reasoning provided"),
         reading_time=reading_time,
         tags=data.get("tags", [])[:5],  # Max 5 tags
+        prompt_version=prompt_version,
     )
 
 
@@ -109,17 +113,23 @@ async def score_article(request: ScoringRequest) -> ScoringResponse:
     THE SYSTEM SHALL score relevance 1-10 using Claude API
     THE SYSTEM SHALL include brief reasoning with each score
     THE SYSTEM SHALL estimate reading time category
+
+    REQ-RC-005: THE SYSTEM SHALL track which prompt version scored each article
     """
     settings = get_settings()
-    prompt = _build_prompt(request)
+
+    # REQ-RC-005: Get active prompt from database
+    prompt_template, prompt_version = get_active_prompt()
+    prompt = _build_prompt(request, prompt_template)
 
     logger.info(
-        "Scoring article %d with %s (%s)",
+        "Scoring article %d with %s (%s), prompt %s",
         request.article_id,
         settings.llm_backend.value,
         settings.ollama_model
         if settings.llm_backend == LLMBackend.OLLAMA
         else settings.anthropic_model,
+        prompt_version,
     )
 
     try:
@@ -128,7 +138,7 @@ async def score_article(request: ScoringRequest) -> ScoringResponse:
         else:
             response_text = await score_with_ollama(prompt)
 
-        return _parse_response(response_text)
+        return _parse_response(response_text, prompt_version)
     except httpx.HTTPError as e:
         raise ScoringError(f"HTTP error calling LLM: {e}") from e
     except Exception as e:

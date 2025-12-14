@@ -213,7 +213,7 @@ THE SYSTEM SHALL allow enabling/disabling individual sources
 THE SYSTEM SHALL default to HTTP Basic Auth with randomly generated
 username+password
 
-WHEN DANGEROUS_NO_WEB AUTH_MODE=1 is set
+WHEN DANGEROUS_NO_WEB_AUTH_MODE=1 is set
 THE SYSTEM SHALL allow unauthenticated web UI route access
 
 WHEN API_KEY environment variable is set

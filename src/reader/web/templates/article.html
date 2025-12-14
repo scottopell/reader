@@ -128,6 +128,71 @@
         }
         .status-badge.read { background: #28a745; }
         .status-badge.sent { background: #007bff; }
+        .actions {
+            margin: 20px 0;
+            padding: 16px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .actions h3 {
+            margin: 0 0 12px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        .decision-buttons {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+        .decision-btn {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .decision-btn:hover {
+            background: #f8f9fa;
+        }
+        .decision-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .decision-btn.sent { border-color: #007bff; color: #007bff; }
+        .decision-btn.sent.active { background: #007bff; color: white; }
+        .decision-btn.skipped { border-color: #dc3545; color: #dc3545; }
+        .decision-btn.skipped.active { background: #dc3545; color: white; }
+        .decision-btn.read { border-color: #28a745; color: #28a745; }
+        .decision-btn.read.active { background: #28a745; color: white; }
+        .rating-section {
+            border-top: 1px solid #eee;
+            padding-top: 16px;
+        }
+        .rating-stars {
+            display: flex;
+            gap: 4px;
+        }
+        .star-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #ddd;
+            padding: 0;
+        }
+        .star-btn:hover,
+        .star-btn.active {
+            color: #ffc107;
+        }
+        .current-rating {
+            margin-left: 12px;
+            color: #666;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -167,5 +232,52 @@
     <article class="article-content">
         {{ article.content_markdown | markdown | safe }}
     </article>
+
+    <div class="actions">
+        <h3>Mark as:</h3>
+        <div class="decision-buttons">
+            <form action="/article/{{ article.id }}/decision" method="post" style="display: inline;">
+                <input type="hidden" name="decision" value="read">
+                <button type="submit" class="decision-btn read {% if article.user_decision.value == 'read' %}active{% endif %}">
+                    Read
+                </button>
+            </form>
+            <form action="/article/{{ article.id }}/decision" method="post" style="display: inline;">
+                <input type="hidden" name="decision" value="sent">
+                <button type="submit" class="decision-btn sent {% if article.user_decision.value == 'sent' %}active{% endif %}">
+                    Sent to Device
+                </button>
+            </form>
+            <form action="/article/{{ article.id }}/decision" method="post" style="display: inline;">
+                <input type="hidden" name="decision" value="skipped">
+                <button type="submit" class="decision-btn skipped {% if article.user_decision.value == 'skipped' %}active{% endif %}">
+                    Skip
+                </button>
+            </form>
+            <form action="/article/{{ article.id }}/decision" method="post" style="display: inline;">
+                <input type="hidden" name="decision" value="pending">
+                <button type="submit" class="decision-btn {% if article.user_decision.value == 'pending' %}active{% endif %}">
+                    Pending
+                </button>
+            </form>
+        </div>
+
+        <div class="rating-section">
+            <h3>Rate this article:</h3>
+            <div class="rating-stars">
+                {% for i in range(1, 6) %}
+                <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
+                    <input type="hidden" name="rating" value="{{ i }}">
+                    <button type="submit" class="star-btn {% if article.user_rating and article.user_rating >= i %}active{% endif %}">
+                        {% if article.user_rating and article.user_rating >= i %}&#9733;{% else %}&#9734;{% endif %}
+                    </button>
+                </form>
+                {% endfor %}
+                {% if article.user_rating %}
+                <span class="current-rating">{{ article.user_rating }}/5</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </body>
 </html>

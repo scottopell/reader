@@ -92,6 +92,8 @@ class TestScoringResponse:
             reasoning="Interesting analysis of distributed systems",
             reading_time=ReadingTimeCategory.DEEP,
             tags=["distributed", "architecture"],
+            prompt_version="v1",
         )
         assert response.score == 7.5
         assert response.reading_time == ReadingTimeCategory.DEEP
+        assert response.prompt_version == "v1"
