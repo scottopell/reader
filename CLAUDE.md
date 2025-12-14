@@ -37,6 +37,34 @@ Every requirement should be traceable via grep:
 rg "REQ-RC-001"  # Should find: requirements.md, design.md, executive.md, code, tests
 ```
 
+## Technology Stack
+
+| Category | Choice |
+|----------|--------|
+| Runtime | Python 3.12+ |
+| Package manager | uv |
+| Web framework | FastAPI |
+| Validation | Pydantic v2 |
+| HTTP client | httpx |
+| Database | SQLite (stdlib sqlite3) |
+| Formatting | Ruff (format) |
+| Linting | Ruff (lint) |
+| Type checking | mypy --strict + pyright strict |
+| Testing | pytest + hypothesis |
+| Project layout | src/ layout |
+| Dev tasks | ./dev.py (PEP 723) |
+
+### Key Libraries
+
+- `fastapi`, `uvicorn` - Web framework and ASGI server
+- `pydantic`, `pydantic-settings` - Validation and config
+- `httpx` - Async HTTP client
+- `feedparser` - RSS parsing
+- `readability-lxml` - Content extraction
+- `anthropic` - Claude API
+- `jinja2` - Templates
+- `passlib[bcrypt]` - Password hashing
+
 ## Architecture Decisions
 
 These decisions are final. Do not revisit without explicit user request.
@@ -75,17 +103,43 @@ These were explicitly rejected or deferred:
 
 ```text
 reader/
-├── src/
-│   ├── ingestion/      # REQ-RC-001, REQ-RC-002, REQ-RC-003
-│   ├── extraction/     # REQ-RC-006
-│   ├── scoring/        # REQ-RC-004, REQ-RC-005
-│   ├── web/            # REQ-RC-008 through REQ-RC-015
-│   ├── api/            # REQ-RC-017, REQ-RC-018
-│   ├── bundle/         # REQ-RC-007, REQ-RC-009
-│   └── auth/           # REQ-RC-016
-├── templates/          # HTML templates
-├── specs/              # spEARS specifications
-└── tests/
+├── dev.py                    # PEP 723 task runner (./dev.py <cmd>)
+├── pyproject.toml            # Project config, dependencies, tool settings
+├── src/reader/
+│   ├── __init__.py
+│   ├── cli.py                # CLI entry point
+│   ├── config.py             # Pydantic settings
+│   ├── models/               # Pydantic models
+│   │   ├── article.py        # Article, ArticleCreate, ArticleScore
+│   │   ├── source.py         # FeedSource
+│   │   └── scoring.py        # ScoringRequest, ScoringResponse
+│   ├── db/                   # Database layer
+│   │   ├── connection.py     # SQLite connection
+│   │   ├── repository.py     # ArticleRepository
+│   │   ├── migrate.py        # Schema migrations
+│   │   └── reset.py          # Database reset
+│   ├── auth/                 # REQ-RC-016
+│   │   ├── credentials.py    # Credential generation
+│   │   └── middleware.py     # FastAPI auth dependencies
+│   ├── ingestion/            # REQ-RC-001, REQ-RC-002, REQ-RC-003
+│   │   ├── email.py          # IMAP ingestion
+│   │   └── rss.py            # RSS ingestion
+│   ├── extraction/           # REQ-RC-006
+│   │   └── readability.py    # Content extraction
+│   ├── scoring/              # REQ-RC-004, REQ-RC-005
+│   │   ├── llm.py            # Claude API scoring
+│   │   └── prompts.py        # Prompt management
+│   ├── bundle/               # REQ-RC-007, REQ-RC-009
+│   │   └── generator.py      # Bundle generation
+│   └── web/                  # REQ-RC-008 through REQ-RC-015, REQ-RC-017, REQ-RC-018
+│       ├── app.py            # FastAPI app
+│       ├── routes/           # Route handlers
+│       │   ├── inbox.py      # Inbox view
+│       │   └── api.py        # API endpoints
+│       ├── templates/        # Jinja2 templates
+│       └── static/           # Static assets
+├── tests/                    # pytest tests
+└── specs/                    # spEARS specifications
 ```
 
 ### Error Handling
@@ -129,3 +183,44 @@ def test_req_rc_004_article_scoring():
 
 Ingestion and scoring run on a schedule (systemd timer or cron). The web server
 does not run these - they are separate processes.
+
+## Development Workflow
+
+### Setup
+
+```bash
+# Install dependencies
+uv sync --dev
+
+# Run migrations
+./dev.py db-migrate
+
+# Start dev server (generates credentials on first run)
+./dev.py serve
+```
+
+### Common Commands
+
+```bash
+./dev.py fmt          # Format code with ruff
+./dev.py lint         # Lint with ruff
+./dev.py typecheck    # Run mypy and pyright
+./dev.py test         # Run pytest
+./dev.py check        # fmt --check + lint + typecheck (CI)
+./dev.py serve        # Start dev server with hot reload
+./dev.py db-migrate   # Run migrations
+./dev.py db-reset     # Reset database (deletes data)
+```
+
+### Type Hints
+
+- **Mandatory** at module boundaries (function signatures, class attributes)
+- **Mandatory** for Pydantic models (network boundaries)
+- Use `Annotated` for FastAPI dependencies
+- Both mypy --strict and pyright strict must pass
+
+### Testing
+
+- Use pytest + pytest-asyncio for async tests
+- Use hypothesis for property-based tests where natural (e.g., score validation)
+- Reference requirement IDs in test docstrings
