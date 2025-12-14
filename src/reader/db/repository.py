@@ -50,6 +50,41 @@ class ArticleRepository:
                 return self._row_to_article(row)
             return None
 
+    # REQ-RC-011: Search articles using FTS5
+    def search(self, query: str, limit: int = 50) -> list[Article]:
+        """Search articles by title, content, and tags.
+
+        REQ-RC-011: WHEN user searches the archive
+        THE SYSTEM SHALL search across title, source, content, and tags
+        THE SYSTEM SHALL return results ranked by search match quality
+        """
+        if not query.strip():
+            return []
+
+        # Sanitize query for FTS5:
+        # 1. Remove null bytes and control characters (cause SQL issues)
+        # 2. Escape double quotes
+        # 3. Wrap in quotes to treat as literal phrase
+        sanitized = "".join(c for c in query if c.isprintable() or c in " \t")
+        sanitized = sanitized.replace('"', '""')
+        if not sanitized.strip():
+            return []
+        fts_query = f'"{sanitized}"'
+
+        with get_connection() as conn:
+            # Use FTS5 MATCH for full-text search, ranked by bm25
+            rows = conn.execute(
+                """
+                SELECT articles.* FROM articles
+                JOIN articles_fts ON articles.id = articles_fts.rowid
+                WHERE articles_fts MATCH ?
+                ORDER BY bm25(articles_fts)
+                LIMIT ?
+                """,
+                (fts_query, limit),
+            ).fetchall()
+            return [self._row_to_article(row) for row in rows]
+
     # REQ-RC-008: Get articles for inbox display
     def get_inbox(self, show_all: bool = False, limit: int = 50) -> list[Article]:
         """Get articles for inbox, optionally filtered by median score."""

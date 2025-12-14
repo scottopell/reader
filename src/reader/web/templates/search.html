@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search - Reader</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        header {
+            margin-bottom: 20px;
+        }
+        h1 { margin: 0 0 16px 0; }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 16px;
+            color: #007bff;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .search-form {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .search-input {
+            flex: 1;
+            padding: 10px 14px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        .search-input:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        .search-button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .search-button:hover { background: #0056b3; }
+        .result-count {
+            color: #666;
+            margin-bottom: 16px;
+        }
+        .article {
+            background: white;
+            padding: 16px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .article-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        .article-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0;
+            flex: 1;
+        }
+        .article-title a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .article-title a:hover {
+            color: #007bff;
+        }
+        .article-score {
+            background: #28a745;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 14px;
+            margin-left: 12px;
+        }
+        .article-score.low { background: #ffc107; color: #333; }
+        .article-score.very-low { background: #dc3545; }
+        .article-meta {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .article-reasoning {
+            font-size: 14px;
+            color: #444;
+            font-style: italic;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 8px;
+        }
+        .status-badge {
+            display: inline-block;
+            background: #6c757d;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        .status-badge.read { background: #28a745; }
+        .status-badge.sent { background: #007bff; }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/" class="back-link">&larr; Back to Inbox</a>
+        <h1>Search Articles</h1>
+        <form class="search-form" action="/search" method="get">
+            <input type="text" name="q" class="search-input" placeholder="Search titles, content, tags..." value="{{ query }}" autofocus>
+            <button type="submit" class="search-button">Search</button>
+        </form>
+    </header>
+
+    {% if query %}
+        <p class="result-count">{{ articles|length }} result{% if articles|length != 1 %}s{% endif %} for "{{ query }}"</p>
+
+        {% if articles %}
+            {% for article in articles %}
+            <div class="article">
+                <div class="article-header">
+                    <h2 class="article-title"><a href="/article/{{ article.id }}">{{ article.title }}</a></h2>
+                    {% if article.llm_score %}
+                    <span class="article-score {% if article.llm_score < 5 %}very-low{% elif article.llm_score < 7 %}low{% endif %}">
+                        {{ "%.1f"|format(article.llm_score) }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="article-meta">
+                    {{ article.source }} · {{ article.reading_time_category or 'unknown' }} read
+                    <span class="status-badge {{ article.user_decision.value }}">{{ article.user_decision.value }}</span>
+                </div>
+                {% if article.llm_reasoning %}
+                <div class="article-reasoning">
+                    {{ article.llm_reasoning }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state">
+                <h2>No results found</h2>
+                <p>Try different search terms.</p>
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <h2>Search your articles</h2>
+            <p>Enter a search term to find articles by title, content, or tags.</p>
+        </div>
+    {% endif %}
+</body>
+</html>

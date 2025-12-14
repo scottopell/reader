@@ -53,7 +53,7 @@ HTTP operations via httpx. Source code follows src/ layout pattern.
 | **REQ-RC-008:** Browse Articles by Relevance Score | ✅ Complete | inbox.py route + repository.get_inbox with score sorting |
 | **REQ-RC-009:** Select Articles for Device Transfer | ✅ Complete | api.py add_to_bundle/remove_from_bundle endpoints |
 | **REQ-RC-010:** Read Articles Without Leaving the App | ✅ Complete | GET /article/{id} with markdown rendering, auto-marks as read |
-| **REQ-RC-011:** Find Past Articles | ❌ Not Started | FTS5 table exists, no search route |
+| **REQ-RC-011:** Find Past Articles | ❌ Not Started | Search across title/source/content/tags ranked by match quality. FTS5 table exists, no search route. |
 | **REQ-RC-012:** Focus on High-Value Articles by Default | ✅ Complete | repository.get_inbox filters by median score |
 | **REQ-RC-013:** Monitor Scoring Accuracy | ❌ Not Started | eval_metrics table exists, no stats route |
 | **REQ-RC-014:** Learn from Reading Decisions | 🔄 Partial | repository.update_decision exists, article view marks as read |

@@ -2,6 +2,7 @@
 
 REQ-RC-008: Browse Articles by Relevance Score
 REQ-RC-010: Read Articles Without Leaving the App
+REQ-RC-011: Find Past Articles
 REQ-RC-012: Focus on High-Value Articles by Default
 """
 
@@ -75,4 +76,29 @@ async def article(
         request=request,
         name="article.html",
         context={"article": article_obj},
+    )
+
+
+@router.get("/search", response_class=HTMLResponse)
+async def search(
+    request: Request,
+    _username: Annotated[str, Depends(require_basic_auth)],
+    q: str = "",
+) -> HTMLResponse:
+    """Search articles by title, content, and tags.
+
+    REQ-RC-011: WHEN user searches the archive
+    THE SYSTEM SHALL search across title, source, content, and tags
+    THE SYSTEM SHALL return results ranked by search match quality
+    """
+    repo = ArticleRepository()
+    articles = repo.search(q) if q else []
+
+    return templates.TemplateResponse(
+        request=request,
+        name="search.html",
+        context={
+            "articles": articles,
+            "query": q,
+        },
     )

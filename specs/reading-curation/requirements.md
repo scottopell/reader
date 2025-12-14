@@ -149,10 +149,10 @@ e-reader.
 WHEN user searches the archive
 THE SYSTEM SHALL search across title, source, content, and tags
 
-THE SYSTEM SHALL return results sorted by relevance
+THE SYSTEM SHALL return results ranked by search match quality
 
 **Rationale:** Users want to find past articles they remember reading or want to
-reference.
+reference, with the best matches appearing first.
 
 ---
 
