@@ -6,7 +6,7 @@ REQ-RC-016: Secure Access by Default
 import secrets
 from dataclasses import dataclass
 
-from passlib.hash import bcrypt
+import bcrypt
 
 from reader.db.connection import get_connection
 
@@ -33,7 +33,7 @@ def generate_credentials() -> tuple[str, str]:
 
 def store_credentials(username: str, password: str) -> None:
     """Store hashed credentials in the database."""
-    password_hash = bcrypt.hash(password)
+    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     with get_connection() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO auth_config (key, value) VALUES (?, ?)",
@@ -66,7 +66,7 @@ def get_credentials() -> Credentials | None:
 
 def verify_password(password: str, password_hash: str) -> bool:
     """Verify a password against its hash."""
-    return bcrypt.verify(password, password_hash)
+    return bcrypt.checkpw(password.encode(), password_hash.encode())
 
 
 def ensure_credentials() -> tuple[str, str] | None:

@@ -17,8 +17,11 @@ class ArticleRepository:
         with get_connection() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO articles (source, title, url, author, content_markdown, received_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO articles (
+                    source, title, url, author, content_markdown, received_at,
+                    word_count, extraction_status, extraction_error
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article.source,
@@ -27,6 +30,9 @@ class ArticleRepository:
                     article.author,
                     article.content_markdown,
                     datetime.now(UTC).isoformat(),
+                    article.word_count,
+                    article.extraction_status.value,
+                    article.extraction_error,
                 ),
             )
             conn.commit()

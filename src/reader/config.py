@@ -1,9 +1,17 @@
 """Application configuration via environment variables."""
 
+from enum import Enum
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class LLMBackend(str, Enum):
+    """LLM backend for scoring."""
+
+    ANTHROPIC = "anthropic"
+    OLLAMA = "ollama"
 
 
 class Settings(BaseSettings):
@@ -22,9 +30,25 @@ class Settings(BaseSettings):
     )
 
     # LLM
+    llm_backend: LLMBackend = Field(
+        default=LLMBackend.OLLAMA,
+        description="LLM backend: 'anthropic' or 'ollama'",
+    )
     anthropic_api_key: str = Field(
         default="",
         description="Anthropic API key for Claude scoring",
+    )
+    anthropic_model: str = Field(
+        default="claude-sonnet-4-20250514",
+        description="Anthropic model to use",
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama API base URL",
+    )
+    ollama_model: str = Field(
+        default="llama3.2",
+        description="Ollama model to use for scoring",
     )
 
     # Email (IMAP)  # noqa: ERA001

@@ -32,12 +32,12 @@ Provide:
 4. Suggested tags (max 3)
 
 Respond in JSON:
-{
+{{
   "score": 8,
   "reasoning": "Brief explanation here",
   "reading_time": "medium",
   "tags": ["tag1", "tag2"]
-}"""
+}}"""
 
 # TODO: Implement prompt version management
 # - Store prompts in database

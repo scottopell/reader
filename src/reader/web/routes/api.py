@@ -5,6 +5,7 @@ REQ-RC-018: Download Bundle via API
 """
 
 import io
+import logging
 import re
 import zipfile
 from typing import Annotated
@@ -15,8 +16,13 @@ from pydantic import BaseModel, HttpUrl
 
 from reader.auth.middleware import require_api_key
 from reader.db.repository import ArticleRepository
+from reader.extraction.readability import extract_from_url
+from reader.models.article import ArticleCreate, ArticleScore, ExtractionStatus
+from reader.models.scoring import ScoringRequest
+from reader.scoring.llm import ScoringError, get_content_preview, score_article
 
 router = APIRouter(tags=["api"])
+logger = logging.getLogger(__name__)
 
 
 class ArticleSubmission(BaseModel):
@@ -30,6 +36,8 @@ class ArticleSubmissionResponse(BaseModel):
 
     status: str
     message: str
+    article_id: int | None = None
+    score: float | None = None
 
 
 class BundleAddResponse(BaseModel):
@@ -42,20 +50,86 @@ class BundleAddResponse(BaseModel):
 # REQ-RC-017: Accept URLs from iOS Shortcuts
 @router.post("/article", response_model=ArticleSubmissionResponse)
 async def submit_article(
-    _submission: ArticleSubmission,  # TODO: Use when implementing queue
+    submission: ArticleSubmission,
     _api_key: Annotated[str, Depends(require_api_key)],  # Auth side-effect
 ) -> ArticleSubmissionResponse:
     """Submit a URL for extraction and scoring.
 
+    REQ-RC-003: WHEN user submits a URL via API endpoint
+    THE SYSTEM SHALL queue the URL for content extraction and scoring
+
     REQ-RC-017: WHEN POST request arrives at /article endpoint with URL and valid API key
     THE SYSTEM SHALL queue URL for extraction and scoring
     """
-    # TODO: Queue URL for background extraction and scoring
-    # For now, just acknowledge receipt
-    return ArticleSubmissionResponse(
-        status="queued",
-        message="Article queued for scoring",
+    url = str(submission.url)
+    logger.info("Received URL submission: %s", url)
+
+    # REQ-RC-006: Extract content from URL
+    extraction = await extract_from_url(url)
+
+    # Create article in database
+    repo = ArticleRepository()
+    article_data = ArticleCreate(
+        source=f"url:{submission.url.host or 'unknown'}",
+        title=extraction.title or "Untitled",
+        url=url,
+        content_markdown=extraction.content_markdown,
+        word_count=extraction.word_count,
+        extraction_status=extraction.status,
+        extraction_error=extraction.error,
     )
+    article_id = repo.create(article_data)
+    logger.info("Created article %d: %s", article_id, extraction.title)
+
+    # If extraction failed, return early
+    if extraction.status == ExtractionStatus.FAILED:
+        return ArticleSubmissionResponse(
+            status="extraction_failed",
+            message=f"Failed to extract content: {extraction.error}",
+            article_id=article_id,
+        )
+
+    if extraction.status == ExtractionStatus.MANUAL_REVIEW:
+        return ArticleSubmissionResponse(
+            status="manual_review",
+            message="Article saved but content too short, may need manual review",
+            article_id=article_id,
+        )
+
+    # REQ-RC-004: Score with LLM
+    try:
+        scoring_request = ScoringRequest(
+            article_id=article_id,
+            title=extraction.title,
+            source=article_data.source,
+            content_preview=get_content_preview(extraction.content_markdown),
+        )
+        scoring_response = await score_article(scoring_request)
+
+        # Update article with score
+        score_data = ArticleScore(
+            llm_score=scoring_response.score,
+            llm_reasoning=scoring_response.reasoning,
+            reading_time_category=scoring_response.reading_time,
+            tags=scoring_response.tags,
+            prompt_version="v1",  # TODO: Get from prompt versioning system
+        )
+        repo.update_score(article_id, score_data)
+        logger.info("Scored article %d: %.1f", article_id, scoring_response.score)
+
+        return ArticleSubmissionResponse(
+            status="success",
+            message=f"Article scored: {scoring_response.score:.1f}/10 - {scoring_response.reasoning}",
+            article_id=article_id,
+            score=scoring_response.score,
+        )
+    except ScoringError as e:
+        logger.warning("Scoring failed for article %d: %s", article_id, e)
+        return ArticleSubmissionResponse(
+            status="scoring_failed",
+            message=f"Article saved but scoring failed: {e}",
+            article_id=article_id,
+        )
 
 
 # REQ-RC-018: Download Bundle via API

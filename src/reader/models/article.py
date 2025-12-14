@@ -39,6 +39,11 @@ class ArticleCreate(BaseModel):
     url: str | None = Field(default=None, description="Original article URL")
     author: str | None = Field(default=None, description="Article author")
     content_markdown: str = Field(description="Article content as Markdown")
+    word_count: int | None = Field(default=None, description="Word count")
+    extraction_status: ExtractionStatus = Field(
+        default=ExtractionStatus.SUCCESS, description="Extraction status"
+    )
+    extraction_error: str | None = Field(default=None, description="Extraction error message")
 
 
 class ArticleScore(BaseModel):
