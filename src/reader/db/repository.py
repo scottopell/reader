@@ -38,6 +38,18 @@ class ArticleRepository:
             conn.commit()
             return cursor.lastrowid or 0
 
+    # REQ-RC-010: Get single article by ID
+    def get_by_id(self, article_id: int) -> Article | None:
+        """Get a single article by ID."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM articles WHERE id = ?",
+                (article_id,),
+            ).fetchone()
+            if row:
+                return self._row_to_article(row)
+            return None
+
     # REQ-RC-008: Get articles for inbox display
     def get_inbox(self, show_all: bool = False, limit: int = 50) -> list[Article]:
         """Get articles for inbox, optionally filtered by median score."""

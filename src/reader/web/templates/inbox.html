@@ -48,6 +48,13 @@
             margin: 0;
             flex: 1;
         }
+        .article-title a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .article-title a:hover {
+            color: #007bff;
+        }
         .article-score {
             background: #28a745;
             color: white;
@@ -94,7 +101,7 @@
         {% for article in articles %}
         <div class="article">
             <div class="article-header">
-                <h2 class="article-title">{{ article.title }}</h2>
+                <h2 class="article-title"><a href="/article/{{ article.id }}">{{ article.title }}</a></h2>
                 {% if article.llm_score %}
                 <span class="article-score {% if article.llm_score < 5 %}very-low{% elif article.llm_score < 7 %}low{% endif %}">
                     {{ "%.1f"|format(article.llm_score) }}
