@@ -45,21 +45,21 @@ HTTP operations via httpx. Source code follows src/ layout pattern.
 |-------------|--------|-------|
 | **REQ-RC-001:** Discover New Content from Email Newsletters | ⏭️ Stub Only | email.py has TODO comments, no IMAP implementation |
 | **REQ-RC-002:** Discover New Content from RSS Feeds | ⏭️ Stub Only | rss.py has TODO comments, no feedparser integration |
-| **REQ-RC-003:** Add Articles Manually via URL | ⏭️ Stub Only | Endpoint stubs to extraction module (also stub) |
-| **REQ-RC-004:** Understand Relevance of Each Article | ⏭️ Stub Only | llm.py has TODO comments, no Claude API integration |
-| **REQ-RC-005:** Track Scoring Prompt Changes Over Time | ⏭️ Stub Only | prompts.py has default text but no versioning logic |
-| **REQ-RC-006:** Extract Clean Article Content | ⏭️ Stub Only | readability.py has TODO comments, no extraction |
+| **REQ-RC-003:** Add Articles Manually via URL | ✅ Complete | POST /api/article extracts, scores, and stores articles |
+| **REQ-RC-004:** Understand Relevance of Each Article | ✅ Complete | llm.py with Ollama and Anthropic backends, JSON response parsing |
+| **REQ-RC-005:** Track Scoring Prompt Changes Over Time | 🔄 Partial | prompts.py has default text, hardcoded "v1", no DB versioning |
+| **REQ-RC-006:** Extract Clean Article Content | ✅ Complete | readability.py with readability-lxml + markdownify, failure flagging |
 | **REQ-RC-007:** Create Reading Bundle for E-Reader | ✅ Complete | api.py download_bundle creates ZIP of .txt files |
 | **REQ-RC-008:** Browse Articles by Relevance Score | ✅ Complete | inbox.py route + repository.get_inbox with score sorting |
 | **REQ-RC-009:** Select Articles for Device Transfer | ✅ Complete | api.py add_to_bundle/remove_from_bundle endpoints |
-| **REQ-RC-010:** Read Articles Without Leaving the App | ❌ Not Started | No article detail route exists |
-| **REQ-RC-011:** Find Past Articles | ❌ Not Started | No search route exists |
+| **REQ-RC-010:** Read Articles Without Leaving the App | ✅ Complete | GET /article/{id} with markdown rendering, auto-marks as read |
+| **REQ-RC-011:** Find Past Articles | ❌ Not Started | FTS5 table exists, no search route |
 | **REQ-RC-012:** Focus on High-Value Articles by Default | ✅ Complete | repository.get_inbox filters by median score |
-| **REQ-RC-013:** Monitor Scoring Accuracy | ❌ Not Started | No stats route exists |
-| **REQ-RC-014:** Learn from Reading Decisions | 🔄 In Progress | repository.update_decision exists, no UI calls yet |
-| **REQ-RC-015:** Manage Content Sources | ❌ Not Started | No settings route exists |
+| **REQ-RC-013:** Monitor Scoring Accuracy | ❌ Not Started | eval_metrics table exists, no stats route |
+| **REQ-RC-014:** Learn from Reading Decisions | 🔄 Partial | repository.update_decision exists, article view marks as read |
+| **REQ-RC-015:** Manage Content Sources | ❌ Not Started | feed_sources table exists, no settings route |
 | **REQ-RC-016:** Secure Access by Default | ✅ Complete | credentials.py generates random creds, middleware.py enforces auth |
-| **REQ-RC-017:** Accept URLs from iOS Shortcuts | 🔄 In Progress | Endpoint exists but returns "queued" without extraction/scoring |
-| **REQ-RC-018:** Download Bundle via API | ✅ Complete | GET /bundle endpoint in api.py |
+| **REQ-RC-017:** Accept URLs from iOS Shortcuts | ✅ Complete | POST /api/article with full extract→score→store pipeline |
+| **REQ-RC-018:** Download Bundle via API | ✅ Complete | GET /api/bundle endpoint returns ZIP |
 
-**Progress:** 6 of 18 complete (2 in progress, 6 stubs, 4 not started)
+**Progress:** 11 of 18 complete (2 partial, 2 stubs, 3 not started)
