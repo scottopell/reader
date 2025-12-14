@@ -62,3 +62,4 @@ Thumbs.db
 # Project specific
 /data/
 .dev/
+.claude/settings.local.json
