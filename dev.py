@@ -54,7 +54,7 @@ LOG_FILE = DEV_DIR / "server.log"
 # REQ-DW-009: Internal environment configuration
 DEFAULT_ENV = {
     "READER_LLM_BACKEND": "ollama",
-    "DANGEROUS_NO_WEB_AUTH_MODE": "1",  # Dev server runs without auth
+    "READER_DANGEROUS_NO_WEB_AUTH_MODE": "1",  # Dev server runs without auth
 }
 
 

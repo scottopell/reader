@@ -17,12 +17,12 @@ from fastapi.security import (
 from reader.auth.credentials import get_credentials, verify_password
 from reader.config import get_settings
 
-basic_security = HTTPBasic()
+basic_security = HTTPBasic(auto_error=False)
 bearer_security = HTTPBearer(auto_error=False)
 
 
 def require_basic_auth(
-    credentials: Annotated[HTTPBasicCredentials, Depends(basic_security)],
+    credentials: Annotated[HTTPBasicCredentials | None, Depends(basic_security)],
 ) -> str:
     """Require HTTP Basic Auth for web UI routes.
 
@@ -40,6 +40,14 @@ def require_basic_auth(
     # THE SYSTEM SHALL allow unauthenticated web UI route access
     if settings.dangerous_no_web_auth_mode:
         return "anonymous"
+
+    # No credentials provided - prompt for auth
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
     stored = get_credentials()
     if not stored:
