@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ article.title }} - Reader</title>
+    <title>{{ article.title }} - {{ app_settings.app_title }}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -54,6 +54,15 @@
         }
         .article-score.low { background: #ffc107; color: #333; }
         .article-score.very-low { background: #dc3545; }
+        .generation-badge {
+            display: inline-block;
+            background: #e9ecef;
+            color: #495057;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-right: 8px;
+        }
         .article-reasoning {
             font-size: 14px;
             color: #444;
@@ -168,30 +177,83 @@
         .decision-btn.skipped.active { background: #dc3545; color: white; }
         .decision-btn.read { border-color: #28a745; color: #28a745; }
         .decision-btn.read.active { background: #28a745; color: white; }
+        /* REQ-RC-014: Thumbs rating section */
         .rating-section {
             border-top: 1px solid #eee;
             padding-top: 16px;
         }
-        .rating-stars {
+        .thumbs-buttons {
             display: flex;
-            gap: 4px;
+            gap: 16px;
+            align-items: center;
         }
-        .star-btn {
+        .thumb-btn {
             background: none;
-            border: none;
-            font-size: 24px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 28px;
             cursor: pointer;
-            color: #ddd;
-            padding: 0;
+            padding: 8px 16px;
+            transition: all 0.2s;
         }
-        .star-btn:hover,
-        .star-btn.active {
-            color: #ffc107;
+        .thumb-btn:hover {
+            background: #f8f9fa;
         }
+        .thumb-btn.up { border-color: #28a745; }
+        .thumb-btn.up:hover { background: #d4edda; }
+        .thumb-btn.up.active { background: #28a745; }
+        .thumb-btn.down { border-color: #dc3545; }
+        .thumb-btn.down:hover { background: #f8d7da; }
+        .thumb-btn.down.active { background: #dc3545; }
+        .thumb-btn.clear {
+            font-size: 14px;
+            padding: 8px 12px;
+            border-color: #6c757d;
+        }
+        .thumb-btn.clear:hover { background: #e9ecef; }
         .current-rating {
             margin-left: 12px;
             color: #666;
             font-size: 14px;
+        }
+        /* REQ-RC-020: Heuristic-refiner prompt */
+        .refiner-prompt {
+            margin-top: 16px;
+            padding: 12px;
+            background: #e7f3ff;
+            border-radius: 6px;
+            border: 1px solid #b6d4fe;
+        }
+        .refiner-prompt p {
+            margin: 0 0 12px 0;
+            color: #0a58ca;
+        }
+        .refiner-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 8px;
+        }
+        .refiner-btn.yes {
+            background: #0d6efd;
+            color: white;
+        }
+        .refiner-btn.yes:hover { background: #0b5ed7; }
+        .refiner-btn.no {
+            background: #6c757d;
+            color: white;
+        }
+        .refiner-btn.no:hover { background: #5c636a; }
+        .refined-indicator {
+            display: inline-block;
+            background: #d1e7dd;
+            color: #0f5132;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 8px;
         }
     </style>
 </head>
@@ -213,6 +275,9 @@
             <span class="article-score {% if article.llm_score < 5 %}very-low{% elif article.llm_score < 7 %}low{% endif %}">
                 {{ "%.1f"|format(article.llm_score) }}/10
             </span>
+            {% endif %}
+            {% if article.generation_id %}
+            <span class="generation-badge">Gen {{ article.generation_id }}</span>
             {% endif %}
             {% if article.tags %}
             <span class="tags">
@@ -262,21 +327,47 @@
             </form>
         </div>
 
+        <!-- REQ-RC-014: Thumbs up/down rating section -->
         <div class="rating-section">
-            <h3>Rate this article:</h3>
-            <div class="rating-stars">
-                {% for i in range(1, 6) %}
+            <h3>Rate this article:
+                {% if article.rating_refined %}
+                <span class="refined-indicator">Feedback provided</span>
+                {% endif %}
+            </h3>
+            <div class="thumbs-buttons">
                 <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
-                    <input type="hidden" name="rating" value="{{ i }}">
-                    <button type="submit" class="star-btn {% if article.user_rating and article.user_rating >= i %}active{% endif %}">
-                        {% if article.user_rating and article.user_rating >= i %}&#9733;{% else %}&#9734;{% endif %}
+                    <input type="hidden" name="rating" value="1">
+                    <button type="submit" class="thumb-btn up {% if article.user_rating == 1 %}active{% endif %}" title="Thumbs up">
+                        &#128077;
                     </button>
                 </form>
-                {% endfor %}
-                {% if article.user_rating %}
-                <span class="current-rating">{{ article.user_rating }}/5</span>
+                <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
+                    <input type="hidden" name="rating" value="-1">
+                    <button type="submit" class="thumb-btn down {% if article.user_rating == -1 %}active{% endif %}" title="Thumbs down">
+                        &#128078;
+                    </button>
+                </form>
+                {% if article.user_rating != 0 %}
+                <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
+                    <input type="hidden" name="rating" value="0">
+                    <button type="submit" class="thumb-btn clear" title="Clear rating">
+                        Clear
+                    </button>
+                </form>
                 {% endif %}
+                <span class="current-rating">
+                    {% if article.user_rating == 1 %}Liked{% elif article.user_rating == -1 %}Disliked{% else %}Not rated{% endif %}
+                </span>
             </div>
+
+            <!-- REQ-RC-020: Heuristic-refiner entry prompt (shown after rating) -->
+            {% if article.user_rating != 0 and not article.rating_refined %}
+            <div class="refiner-prompt">
+                <p>Want to help improve scoring? Provide detailed feedback about why you {% if article.user_rating == 1 %}liked{% else %}disliked{% endif %} this article.</p>
+                <a href="/article/{{ article.id }}/refine" class="refiner-btn yes">Yes, provide feedback</a>
+                <span class="refiner-btn no" onclick="this.parentElement.style.display='none'">No thanks</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 </body>

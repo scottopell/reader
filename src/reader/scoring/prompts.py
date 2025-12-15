@@ -1,13 +1,15 @@
 """Scoring prompt management.
 
 REQ-RC-005: Track Scoring Prompt Changes Over Time
+REQ-RC-021: Refine Prompts from Daily Feedback
 """
 
 import logging
 from datetime import UTC, datetime
 
 from reader.db.connection import get_connection
-from reader.models.scoring import PromptVersion
+from reader.db.repository import PromptGenerationRepository
+from reader.models.scoring import PromptGeneration, PromptVersion
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +82,33 @@ def get_active_prompt() -> tuple[str, str]:
         return DEFAULT_PROMPT, DEFAULT_VERSION
 
 
+def get_active_generation() -> tuple[str, int]:
+    """Get the active prompt generation, or seed default if none exists.
+
+    REQ-RC-005, REQ-RC-021: Use generations model for prompt management
+
+    Returns:
+        Tuple of (prompt_text, generation_id)
+    """
+    repo = PromptGenerationRepository()
+    generation = repo.get_active()
+
+    if generation:
+        return generation.prompt_text, generation.id
+
+    # No active generation - seed the default
+    logger.info("No active generation found, seeding default as Generation 1")
+    generation_id = repo.create(
+        prompt_text=DEFAULT_PROMPT,
+        diff_from_previous=None,
+        feedback_count=0,
+        set_active=True,
+    )
+    return DEFAULT_PROMPT, generation_id
+
+
 def get_prompt_by_version(version: str) -> PromptVersion | None:
-    """Get a specific prompt version from the database.
+    """Get a specific prompt version from the database (DEPRECATED).
 
     REQ-RC-005: Support looking up historical prompt versions.
     """
@@ -103,7 +130,7 @@ def get_prompt_by_version(version: str) -> PromptVersion | None:
 
 
 def create_prompt_version(version: str, prompt_text: str, set_active: bool = True) -> int:
-    """Create a new prompt version.
+    """Create a new prompt version (DEPRECATED: use PromptGenerationRepository.create).
 
     REQ-RC-005: WHEN scoring prompt is updated
     THE SYSTEM SHALL version the prompt
@@ -133,7 +160,7 @@ def create_prompt_version(version: str, prompt_text: str, set_active: bool = Tru
 
 
 def list_prompt_versions() -> list[PromptVersion]:
-    """List all prompt versions ordered by creation date.
+    """List all prompt versions ordered by creation date (DEPRECATED).
 
     REQ-RC-005: Support viewing prompt version history.
     """
@@ -152,3 +179,12 @@ def list_prompt_versions() -> list[PromptVersion]:
             )
             for row in rows
         ]
+
+
+def list_prompt_generations() -> list[PromptGeneration]:
+    """List all prompt generations ordered by ID descending.
+
+    REQ-RC-022: THE SYSTEM SHALL display all prompt generations with timestamps
+    """
+    repo = PromptGenerationRepository()
+    return repo.get_all()

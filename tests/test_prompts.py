@@ -4,7 +4,6 @@ REQ-RC-005: Track Scoring Prompt Changes Over Time
 """
 
 import os
-import sqlite3
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -122,16 +121,14 @@ class TestPromptVersioning:
         assert "v2" in version_names
         assert DEFAULT_VERSION in version_names
 
-    def test_prompt_version_tracked_in_db(self, mock_db_path: str) -> None:
-        """REQ-RC-005: Verify prompt_versions table stores correctly."""
+    def test_prompt_version_tracked_in_db(self) -> None:
+        """REQ-RC-005: Verify prompt versions exist after seeding."""
+        # Seed default
         get_active_prompt()
 
-        # Direct DB check
-        conn = sqlite3.connect(mock_db_path)
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM prompt_versions WHERE is_active = 1").fetchone()
-        conn.close()
-
-        assert row is not None
-        assert row["version"] == DEFAULT_VERSION
-        assert row["is_active"] == 1
+        # Check versions list
+        versions = list_prompt_versions()
+        assert len(versions) >= 1
+        active_versions = [v for v in versions if v.is_active]
+        assert len(active_versions) == 1
+        assert active_versions[0].version == DEFAULT_VERSION

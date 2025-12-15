@@ -13,7 +13,7 @@ from anthropic import Anthropic
 from reader.config import LLMBackend, get_settings
 from reader.models.article import ReadingTimeCategory
 from reader.models.scoring import ScoringRequest, ScoringResponse
-from reader.scoring.prompts import get_active_prompt
+from reader.scoring.prompts import get_active_generation, get_active_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _build_prompt(request: ScoringRequest, prompt_template: str) -> str:
 def _parse_response(text: str, prompt_version: str) -> ScoringResponse:
     """Parse LLM response JSON into ScoringResponse.
 
-    REQ-RC-005: Include prompt version used for scoring.
+    REQ-RC-005: Include prompt version and generation_id used for scoring.
     """
     # Find JSON in response (may have surrounding text)
     start = text.find("{")
@@ -106,7 +106,19 @@ async def score_with_ollama(prompt: str) -> str:
         return data.get("response", "")
 
 
-async def score_article(request: ScoringRequest) -> ScoringResponse:
+class ScoringResult:
+    """Result of scoring an article, including generation info."""
+
+    def __init__(
+        self,
+        response: ScoringResponse,
+        generation_id: int,
+    ):
+        self.response = response
+        self.generation_id = generation_id
+
+
+async def score_article(request: ScoringRequest) -> ScoringResult:
     """Score an article using the configured LLM backend.
 
     REQ-RC-004: WHEN new article content is extracted
@@ -114,22 +126,26 @@ async def score_article(request: ScoringRequest) -> ScoringResponse:
     THE SYSTEM SHALL include brief reasoning with each score
     THE SYSTEM SHALL estimate reading time category
 
-    REQ-RC-005: THE SYSTEM SHALL track which prompt version scored each article
+    REQ-RC-005: THE SYSTEM SHALL track which prompt version/generation scored each article
     """
     settings = get_settings()
 
-    # REQ-RC-005: Get active prompt from database
-    prompt_template, prompt_version = get_active_prompt()
+    # REQ-RC-005: Get active generation from database (prefer generations over versions)
+    prompt_template, generation_id = get_active_generation()
+
+    # Also get prompt_version for backwards compatibility
+    _, prompt_version = get_active_prompt()
+
     prompt = _build_prompt(request, prompt_template)
 
     logger.info(
-        "Scoring article %d with %s (%s), prompt %s",
+        "Scoring article %d with %s (%s), generation %d",
         request.article_id,
         settings.llm_backend.value,
         settings.ollama_model
         if settings.llm_backend == LLMBackend.OLLAMA
         else settings.anthropic_model,
-        prompt_version,
+        generation_id,
     )
 
     try:
@@ -138,7 +154,8 @@ async def score_article(request: ScoringRequest) -> ScoringResponse:
         else:
             response_text = await score_with_ollama(prompt)
 
-        return _parse_response(response_text, prompt_version)
+        response = _parse_response(response_text, prompt_version)
+        return ScoringResult(response=response, generation_id=generation_id)
     except httpx.HTTPError as e:
         raise ScoringError(f"HTTP error calling LLM: {e}") from e
     except Exception as e:

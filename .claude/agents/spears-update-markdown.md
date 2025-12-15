@@ -1,5 +1,5 @@
 ---
-name: update-spears-markdown
+name: spears-update-markdown
 description: spEARS requirements specialist for updating specifications. MUST BE USED when modifying requirements.md, design.md, or executive.md files in specs/. Enforces EARS format, document separation, and quality checklists.
 tools: Read, Edit, Grep, Glob
 model: sonnet

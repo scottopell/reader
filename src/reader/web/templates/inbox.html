@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reader - Inbox</title>
+    <!-- REQ-RC-023: Display configured title in page titles -->
+    <title>{{ app_settings.app_title }} - Inbox</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -34,7 +35,7 @@
             gap: 8px;
             align-items: center;
         }
-        .search-link {
+        .nav-link {
             padding: 8px 16px;
             background: #6c757d;
             color: white;
@@ -42,7 +43,7 @@
             border-radius: 4px;
             text-decoration: none;
         }
-        .search-link:hover { background: #545b62; }
+        .nav-link:hover { background: #545b62; }
         .article {
             background: white;
             padding: 16px;
@@ -69,6 +70,12 @@
         .article-title a:hover {
             color: #007bff;
         }
+        .article-badges {
+            display: flex;
+            gap: 8px;
+            margin-left: 12px;
+            align-items: center;
+        }
         .article-score {
             background: #28a745;
             color: white;
@@ -76,10 +83,27 @@
             border-radius: 12px;
             font-weight: bold;
             font-size: 14px;
-            margin-left: 12px;
         }
         .article-score.low { background: #ffc107; color: #333; }
         .article-score.very-low { background: #dc3545; }
+        /* REQ-RC-008: Generation badge */
+        .generation-badge {
+            background: #e9ecef;
+            color: #495057;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+        .generation-badge.current {
+            background: #007bff;
+            color: white;
+        }
+        /* REQ-RC-014: Thumbs rating indicator */
+        .rating-indicator {
+            font-size: 16px;
+        }
+        .rating-indicator.up { color: #28a745; }
+        .rating-indicator.down { color: #dc3545; }
         .article-meta {
             font-size: 13px;
             color: #666;
@@ -103,11 +127,14 @@
 </head>
 <body>
     <header>
-        <h1>Reader</h1>
+        <!-- REQ-RC-023: Display configured title in UI header -->
+        <h1>{{ app_settings.app_title }}</h1>
         <div class="header-actions">
-            <a href="/search" class="search-link">Search</a>
-            <a href="/stats" class="search-link">Stats</a>
-            <a href="/settings" class="search-link">Settings</a>
+            <a href="/search" class="nav-link">Search</a>
+            <a href="/stats" class="nav-link">Stats</a>
+            <!-- REQ-RC-022: Top-level navigation to Prompt History -->
+            <a href="/prompt-history" class="nav-link">Prompts</a>
+            <a href="/settings" class="nav-link">Settings</a>
             {% if show_all %}
             <a href="/?show_all=false" class="filter-toggle">Show Top 50%</a>
             {% else %}
@@ -121,11 +148,23 @@
         <div class="article">
             <div class="article-header">
                 <h2 class="article-title"><a href="/article/{{ article.id }}">{{ article.title }}</a></h2>
-                {% if article.llm_score %}
-                <span class="article-score {% if article.llm_score < 5 %}very-low{% elif article.llm_score < 7 %}low{% endif %}">
-                    {{ "%.1f"|format(article.llm_score) }}
-                </span>
-                {% endif %}
+                <div class="article-badges">
+                    <!-- REQ-RC-014: Show thumbs rating if present -->
+                    {% if article.user_rating == 1 %}
+                    <span class="rating-indicator up" title="Thumbs up">&#128077;</span>
+                    {% elif article.user_rating == -1 %}
+                    <span class="rating-indicator down" title="Thumbs down">&#128078;</span>
+                    {% endif %}
+                    <!-- REQ-RC-008: Generation badge -->
+                    {% if article.generation_id %}
+                    <span class="generation-badge" title="Prompt generation">Gen {{ article.generation_id }}</span>
+                    {% endif %}
+                    {% if article.llm_score %}
+                    <span class="article-score {% if article.llm_score < 5 %}very-low{% elif article.llm_score < 7 %}low{% endif %}">
+                        {{ "%.1f"|format(article.llm_score) }}
+                    </span>
+                    {% endif %}
+                </div>
             </div>
             <div class="article-meta">
                 {{ article.source }} · {{ article.reading_time_category or 'unknown' }} read

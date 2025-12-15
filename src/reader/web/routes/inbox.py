@@ -5,7 +5,8 @@ REQ-RC-010: Read Articles Without Leaving the App
 REQ-RC-011: Find Past Articles
 REQ-RC-012: Focus on High-Value Articles by Default
 REQ-RC-013: Monitor Scoring Accuracy
-REQ-RC-014: Learn from Reading Decisions
+REQ-RC-014: Collect User Feedback via Ratings
+REQ-RC-023: Customize Application Appearance
 """
 
 from typing import Annotated
@@ -14,8 +15,15 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from reader.auth.middleware import require_basic_auth
-from reader.db.repository import ArticleRepository, FeedSourceRepository
+from reader.db.repository import (
+    AppSettingsRepository,
+    ArticleRepository,
+    FeedSourceRepository,
+    HeuristicFeedbackRepository,
+    PromptGenerationRepository,
+)
 from reader.models.article import UserDecision
+from reader.models.scoring import HeuristicFeedbackCreate
 from reader.models.source import FeedSourceCreate, SourceType
 from reader.web.templates_config import templates
 
@@ -35,9 +43,13 @@ async def inbox(
     THE SYSTEM SHALL display all unread articles sorted by score (highest first)
 
     REQ-RC-012: THE SYSTEM SHALL by default show only articles scoring above the median
+
+    REQ-RC-023: THE SYSTEM SHALL display configured title in UI header and page titles
     """
     repo = ArticleRepository()
+    settings_repo = AppSettingsRepository()
     articles = repo.get_inbox(show_all=show_all)
+    app_settings = settings_repo.get_all()
 
     return templates.TemplateResponse(
         request=request,
@@ -46,6 +58,7 @@ async def inbox(
             "articles": articles,
             "show_all": show_all,
             "username": username,
+            "app_settings": app_settings,
         },
     )
 
@@ -63,9 +76,13 @@ async def article(
 
     REQ-RC-010: WHEN user finishes reading in-app
     THE SYSTEM SHALL mark article as 'read'
+
+    REQ-RC-023: THE SYSTEM SHALL display configured title in page titles
     """
     repo = ArticleRepository()
+    settings_repo = AppSettingsRepository()
     article_obj = repo.get_by_id(article_id)
+    app_settings = settings_repo.get_all()
 
     if not article_obj:
         raise HTTPException(status_code=404, detail="Article not found")
@@ -78,7 +95,7 @@ async def article(
     return templates.TemplateResponse(
         request=request,
         name="article.html",
-        context={"article": article_obj},
+        context={"article": article_obj, "app_settings": app_settings},
     )
 
 
@@ -157,23 +174,28 @@ async def update_rating(
     rating: Annotated[int, Form()],
     _username: Annotated[str, Depends(require_basic_auth)],
 ) -> RedirectResponse:
-    """Update user rating on an article.
+    """Update user thumbs rating on an article.
 
-    REQ-RC-014: WHEN user provides post-reading rating
-    THE SYSTEM SHALL store rating alongside LLM score
+    REQ-RC-014: WHEN user provides thumbs up or thumbs down rating on an article
+    THE SYSTEM SHALL store the rating alongside the LLM score
+
+    Thumbs ratings:
+        -1: Thumbs down
+         0: No rating (clear)
+         1: Thumbs up
     """
     repo = ArticleRepository()
 
-    # Validate rating (1-5)
-    if rating < 1 or rating > 5:
-        raise HTTPException(status_code=400, detail="Rating must be 1-5")
+    # Validate rating (-1, 0, or 1)
+    if rating not in (-1, 0, 1):
+        raise HTTPException(status_code=400, detail="Rating must be -1, 0, or 1")
 
-    # Get current article to preserve decision
+    # Verify article exists
     article_obj = repo.get_by_id(article_id)
     if not article_obj:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    repo.update_decision(article_id, article_obj.user_decision, rating=rating)
+    repo.update_rating(article_id, rating)
     return RedirectResponse(url=f"/article/{article_id}", status_code=303)
 
 
@@ -253,3 +275,177 @@ async def delete_source(
     repo = FeedSourceRepository()
     repo.delete(source_id)
     return RedirectResponse(url="/settings", status_code=303)
+
+
+# REQ-RC-019, REQ-RC-020: Heuristic-refiner routes
+
+
+@router.get("/article/{article_id}/refine", response_class=HTMLResponse)
+async def refine_article(
+    request: Request,
+    article_id: int,
+    _username: Annotated[str, Depends(require_basic_auth)],
+) -> HTMLResponse:
+    """Display heuristic-refiner feedback form for an article.
+
+    REQ-RC-019: WHEN user enters heuristic-refiner mode for an article
+    THE SYSTEM SHALL call LLM API to characterize article using 5-Whats framework
+
+    REQ-RC-020: THE SYSTEM SHALL present textarea for free-form feedback
+    THE SYSTEM SHALL restore textarea content from localStorage if exists
+    """
+    from reader.refiner.characterization import CharacterizationError, characterize_article
+    from reader.scoring.llm import get_content_preview
+
+    repo = ArticleRepository()
+    settings_repo = AppSettingsRepository()
+    feedback_repo = HeuristicFeedbackRepository()
+
+    article_obj = repo.get_by_id(article_id)
+    app_settings = settings_repo.get_all()
+
+    if not article_obj:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Check if feedback already exists
+    existing_feedback = feedback_repo.get_by_article(article_id)
+    if existing_feedback:
+        # Redirect back to article if feedback already provided
+        return templates.TemplateResponse(
+            request=request,
+            name="refine.html",
+            context={
+                "article": article_obj,
+                "app_settings": app_settings,
+                "existing_feedback": existing_feedback,
+                "characterization": existing_feedback.characterization,
+            },
+        )
+
+    # Get 5-Whats characterization
+    characterization = None
+    characterization_error = None
+    try:
+        characterization = await characterize_article(
+            title=article_obj.title,
+            source=article_obj.source,
+            content_preview=get_content_preview(article_obj.content_markdown),
+        )
+    except CharacterizationError as e:
+        characterization_error = str(e)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="refine.html",
+        context={
+            "article": article_obj,
+            "app_settings": app_settings,
+            "characterization": characterization,
+            "characterization_error": characterization_error,
+            "existing_feedback": None,
+        },
+    )
+
+
+@router.post("/article/{article_id}/refine")
+async def submit_refine_feedback(
+    article_id: int,
+    feedback_text: Annotated[str, Form()],
+    characterization_json: Annotated[str, Form()] = "",
+    _username: Annotated[str, Depends(require_basic_auth)] = "",
+) -> RedirectResponse:
+    """Submit heuristic-refiner feedback for an article.
+
+    REQ-RC-020: WHEN user submits feedback
+    THE SYSTEM SHALL store feedback with characterization and article linkage
+    THE SYSTEM SHALL flag article as rating_refined = true
+    THE SYSTEM SHALL clear localStorage draft
+    """
+    repo = ArticleRepository()
+    feedback_repo = HeuristicFeedbackRepository()
+
+    # Verify article exists
+    article_obj = repo.get_by_id(article_id)
+    if not article_obj:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Validate feedback
+    if not feedback_text.strip():
+        raise HTTPException(status_code=400, detail="Feedback text is required")
+
+    # Create feedback entry
+    feedback = HeuristicFeedbackCreate(
+        article_id=article_id,
+        feedback_text=feedback_text.strip(),
+        characterization_json=characterization_json if characterization_json else None,
+    )
+    feedback_repo.create(feedback)
+
+    # Mark article as having provided refinement feedback
+    repo.mark_rating_refined(article_id, refined=True)
+
+    return RedirectResponse(url=f"/article/{article_id}", status_code=303)
+
+
+# REQ-RC-022: Prompt History routes
+
+
+@router.get("/prompt-history", response_class=HTMLResponse)
+async def prompt_history(
+    request: Request,
+    _username: Annotated[str, Depends(require_basic_auth)],
+) -> HTMLResponse:
+    """Display prompt evolution history.
+
+    REQ-RC-022: WHEN user navigates to Prompt History page
+    THE SYSTEM SHALL display all prompt generations with timestamps
+    THE SYSTEM SHALL show diff between each generation and its predecessor
+    """
+    settings_repo = AppSettingsRepository()
+    generation_repo = PromptGenerationRepository()
+
+    app_settings = settings_repo.get_all()
+    generations = generation_repo.get_all()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="prompt_history.html",
+        context={
+            "app_settings": app_settings,
+            "generations": generations,
+        },
+    )
+
+
+@router.get("/prompt-history/{generation_id}", response_class=HTMLResponse)
+async def prompt_generation_detail(
+    request: Request,
+    generation_id: int,
+    _username: Annotated[str, Depends(require_basic_auth)],
+) -> HTMLResponse:
+    """Display details for a specific prompt generation.
+
+    REQ-RC-022: THE SYSTEM SHALL link each generation to the feedback items that produced it
+    """
+    settings_repo = AppSettingsRepository()
+    generation_repo = PromptGenerationRepository()
+    feedback_repo = HeuristicFeedbackRepository()
+
+    app_settings = settings_repo.get_all()
+    generation = generation_repo.get_by_id(generation_id)
+
+    if not generation:
+        raise HTTPException(status_code=404, detail="Generation not found")
+
+    # Get feedback that produced this generation
+    feedback_list = feedback_repo.get_by_generation(generation_id)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="prompt_generation.html",
+        context={
+            "app_settings": app_settings,
+            "generation": generation,
+            "feedback_list": feedback_list,
+        },
+    )

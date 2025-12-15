@@ -58,14 +58,15 @@ CREATE TABLE articles (
   word_count INTEGER,
   tags TEXT,                         -- JSON array
 
-  -- REQ-RC-005: Prompt versioning
-  prompt_version TEXT,               -- Which prompt produced this score
+  -- REQ-RC-005, REQ-RC-008: Prompt versioning and generation tracking
+  prompt_version TEXT,               -- DEPRECATED: use generation_id instead
+  generation_id INTEGER,             -- FK to prompt_generations (which generation scored this)
   scored_at TIMESTAMP,
 
-  -- REQ-RC-014: User decision tracking
-  user_decision TEXT DEFAULT 'pending',  -- 'sent', 'skipped', 'read', 'pending'
-  user_rating INTEGER,               -- Optional post-reading rating (1-5)
-  decided_at TIMESTAMP,
+  -- REQ-RC-014: User rating (thumbs up/down)
+  user_rating SMALLINT,              -- -1 (thumbs down), 0 (no rating), 1 (thumbs up)
+  rating_refined BOOLEAN DEFAULT 0,  -- Whether user entered heuristic-refiner for this article
+  rated_at TIMESTAMP,
 
   -- REQ-RC-009: Bundle tracking
   in_bundle BOOLEAN DEFAULT 0,
@@ -73,12 +74,15 @@ CREATE TABLE articles (
 
   -- REQ-RC-006: Extraction status
   extraction_status TEXT DEFAULT 'success',  -- 'success', 'failed', 'manual_review'
-  extraction_error TEXT
+  extraction_error TEXT,
+
+  FOREIGN KEY (generation_id) REFERENCES prompt_generations(id)
 );
 
 CREATE INDEX idx_articles_score ON articles(llm_score DESC);
 CREATE INDEX idx_articles_received ON articles(received_at DESC);
-CREATE INDEX idx_articles_decision ON articles(user_decision);
+CREATE INDEX idx_articles_generation ON articles(generation_id);
+CREATE INDEX idx_articles_rating ON articles(user_rating);
 CREATE INDEX idx_articles_bundle ON articles(in_bundle);
 
 -- REQ-RC-011: Full-text search
@@ -100,26 +104,57 @@ CREATE TABLE feed_sources (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- REQ-RC-005: Prompt version tracking
-CREATE TABLE prompt_versions (
-  id INTEGER PRIMARY KEY,
-  version TEXT NOT NULL UNIQUE,      -- 'v1', 'v2', etc.
-  prompt_text TEXT NOT NULL,
+-- REQ-RC-005, REQ-RC-021, REQ-RC-022: Prompt generation tracking
+CREATE TABLE prompt_generations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Generation number (1, 2, 3, ...)
+  prompt_text TEXT NOT NULL,             -- Full prompt text
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  is_active BOOLEAN DEFAULT 0
+  diff_from_previous TEXT,               -- Word-diff from previous generation
+  feedback_count INTEGER DEFAULT 0,      -- Number of feedback items that produced this generation
+  is_active BOOLEAN DEFAULT 0            -- Currently active generation for new scoring
 );
 
--- REQ-RC-013: Eval metrics
+-- REQ-RC-019, REQ-RC-020, REQ-RC-021: Heuristic-refiner feedback
+CREATE TABLE heuristic_feedback (
+  id INTEGER PRIMARY KEY,
+  article_id INTEGER NOT NULL,
+  feedback_text TEXT NOT NULL,           -- User-provided feedback
+  characterization_json TEXT,            -- 5-Whats result from LLM (JSON)
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  generation_id INTEGER,                 -- FK to prompt_generations (generation this feedback produced, NULL until batch runs)
+
+  FOREIGN KEY (article_id) REFERENCES articles(id),
+  FOREIGN KEY (generation_id) REFERENCES prompt_generations(id)
+);
+
+CREATE INDEX idx_feedback_article ON heuristic_feedback(article_id);
+CREATE INDEX idx_feedback_generation ON heuristic_feedback(generation_id);
+CREATE INDEX idx_feedback_created ON heuristic_feedback(created_at);
+
+-- REQ-RC-023: Application settings
+CREATE TABLE app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Seed default app title
+INSERT INTO app_settings (key, value) VALUES ('app_title', 'nerd-reader');
+
+-- REQ-RC-013: Eval metrics (updated for generation-based analysis)
 CREATE TABLE eval_metrics (
   id INTEGER PRIMARY KEY,
-  date DATE UNIQUE,
+  generation_id INTEGER,
+  date DATE,
   total_articles INTEGER,
-  articles_sent INTEGER,
-  articles_read INTEGER,
-  articles_skipped INTEGER,
-  precision REAL,                    -- % of sent actually read
-  recall REAL,                       -- % of read that were high-scored
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  high_scored_articles INTEGER,        -- Articles with score >= 7
+  low_scored_articles INTEGER,         -- Articles with score < 7
+  high_scored_thumbs_up INTEGER,       -- Thumbs up in high-scored
+  low_scored_thumbs_up INTEGER,        -- Thumbs up in low-scored
+  precision_high REAL,                 -- % thumbs up in high-scored
+  precision_low REAL,                  -- % thumbs up in low-scored
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (generation_id) REFERENCES prompt_generations(id)
 );
 
 -- REQ-RC-016: Auth credentials (separate file recommended)
@@ -531,7 +566,386 @@ Reading Time: {article.reading_time_category}
     )
 ```
 
-## Error Handling Strategy
+## Heuristic-Refiner System Design
+
+### Architecture Decision: Generations Not Versions
+
+**REQ-RC-005, REQ-RC-021, REQ-RC-022**
+
+Prompt "generations" replace the concept of manually-managed "versions." Each generation represents an evolution produced by the refinement LLM based on user feedback. Generations are:
+
+- **Immutable**: Once created, never modified
+- **Sequential**: Auto-incrementing ID (1, 2, 3...)
+- **Self-describing**: Include diff from previous generation
+- **Traceable**: Link to feedback items that produced them
+
+Old articles retain their generation_id to preserve historical context. New articles are always scored with the current active generation.
+
+### Feedback Collection Flow
+
+**REQ-RC-019, REQ-RC-020**
+
+```text
+User rates article (thumbs up/down)
+  ↓
+System prompts: "Enter heuristic-refiner?"
+  ↓
+If YES:
+  ↓
+  LLM characterizes article → 5-Whats JSON
+  ↓
+  Display modal:
+    - 5-Whats scorecard (above content)
+    - Feedback text box (hideable)
+    - Local storage auto-save
+  ↓
+  User writes feedback, submits
+  ↓
+  Store in heuristic_feedback table:
+    - article_id
+    - feedback_text
+    - characterization_json
+    - created_at
+    - generation_id = NULL (until batch runs)
+  ↓
+  Set article.rating_refined = 1
+```
+
+### Daily Refinement Batch
+
+**REQ-RC-021**
+
+```text
+Cron job: UTC midnight daily
+  ↓
+Collect feedback from past 24 hours
+  ↓
+If no feedback:
+  EXIT (current generation continues)
+  ↓
+If feedback exists:
+  ↓
+  Get current active generation prompt
+  ↓
+  Build refinement LLM request:
+    System: "You are a prompt refinement specialist"
+    User:
+      - Current prompt text
+      - Array of (characterization, feedback) pairs
+    Response format: JSON with refined_prompt field
+  ↓
+  Call Claude API with structured output
+  ↓
+  Parse refined_prompt from response
+  ↓
+  Compute word-diff from current to refined
+  ↓
+  Insert new prompt_generations row:
+    - prompt_text = refined_prompt
+    - diff_from_previous = computed diff
+    - feedback_count = count of feedback items
+    - is_active = 1
+  ↓
+  Set previous generation is_active = 0
+  ↓
+  Update all feedback items: generation_id = new_generation.id
+  ↓
+  Log: "Generated prompt generation N from M feedback items"
+```
+
+### Generation-Aware Display
+
+**REQ-RC-008**
+
+Inbox display logic:
+
+```python
+current_gen = get_active_generation()
+previous_5_gens = get_previous_n_generations(5)
+visible_gen_ids = [current_gen.id] + [g.id for g in previous_5_gens]
+
+articles = query("""
+  SELECT * FROM articles
+  WHERE generation_id IN (?)
+  ORDER BY
+    CASE WHEN generation_id = ? THEN 0 ELSE 1 END,  -- Current gen first
+    llm_score DESC
+""", visible_gen_ids, current_gen.id)
+
+for article in articles:
+  if article.generation_id == current_gen.id:
+    render_normal(article)
+  else:
+    render_muted(article)  # Previous generations: lower opacity, smaller font
+```
+
+### All View with Facets
+
+**REQ-RC-012**
+
+"Show All" becomes a rich faceted view:
+
+```text
+Filters:
+  - Generation: [All | Current | Gen 5 | Gen 4 | Gen 3 | Gen 2 | Gen 1]
+  - Rating: [All | Thumbs Up | Thumbs Down | Unrated | Refined]
+
+Sort:
+  - LLM Score (default)
+  - User Rating (thumbs up first)
+```
+
+Implementation uses query builder:
+
+```python
+def build_all_view_query(generation_filter, rating_filter, sort_by):
+  query = "SELECT * FROM articles WHERE 1=1"
+  params = []
+
+  if generation_filter != 'All':
+    query += " AND generation_id = ?"
+    params.append(generation_filter)
+
+  if rating_filter == 'Thumbs Up':
+    query += " AND user_rating = 1"
+  elif rating_filter == 'Thumbs Down':
+    query += " AND user_rating = -1"
+  elif rating_filter == 'Unrated':
+    query += " AND user_rating = 0"
+  elif rating_filter == 'Refined':
+    query += " AND rating_refined = 1"
+
+  if sort_by == 'LLM Score':
+    query += " ORDER BY llm_score DESC"
+  else:  # User Rating
+    query += " ORDER BY user_rating DESC, llm_score DESC"
+
+  return query, params
+```
+
+### Prompt History Page
+
+**REQ-RC-022**
+
+```text
+/prompt-history route:
+
+┌─────────────────────────────────────┐
+│ Prompt History                      │
+├─────────────────────────────────────┤
+│ Generation 3 (Active)               │
+│ Created: 2025-12-14 00:00 UTC       │
+│ Feedback: 5 items                   │
+│                                     │
+│ Diff from Generation 2:             │
+│ - You prefer [-technical-]{+accessible+} │
+│   explanations                      │
+│ + Avoid Xbox game development news │
+│                                     │
+│ [View feedback items]               │
+├─────────────────────────────────────┤
+│ Generation 2                        │
+│ Created: 2025-12-13 00:00 UTC       │
+│ Feedback: 3 items                   │
+│ ...                                 │
+└─────────────────────────────────────┘
+```
+
+Implementation:
+
+```python
+@app.get("/prompt-history")
+async def prompt_history():
+  generations = await db.query("""
+    SELECT * FROM prompt_generations
+    ORDER BY id DESC
+  """)
+
+  for gen in generations:
+    gen.feedback_items = await db.query("""
+      SELECT hf.*, a.title
+      FROM heuristic_feedback hf
+      JOIN articles a ON hf.article_id = a.id
+      WHERE hf.generation_id = ?
+    """, gen.id)
+
+  return templates.TemplateResponse("prompt_history.html", {
+    "generations": generations
+  })
+```
+
+### UI Components
+
+**REQ-RC-014, REQ-RC-019, REQ-RC-020, REQ-RC-023**
+
+1. **Thumbs up/down rating buttons**
+   - Replace 5-star rating
+   - Material Design icons: thumb_up, thumb_down
+   - Toggle behavior: click again to unset
+
+2. **Heuristic-refiner entry prompt**
+   - Modal or slide-up panel after rating
+   - "Want to help improve scoring? [Yes] [No]"
+   - "No" stores rating without feedback
+
+3. **5-Whats scorecard display**
+   - Appears above article content in sequential scroll
+   - Phone-friendly: vertical cards, not table
+   - JSON structure:
+     ```json
+     {
+       "topic": "OAuth2 authentication patterns",
+       "style": "Tutorial with code examples",
+       "depth": "Intermediate - assumes basic auth knowledge",
+       "emotion": "Informative and confidence-building",
+       "level": "Technical"
+     }
+     ```
+
+4. **Feedback text box modal**
+   - Hideable via collapse/expand button
+   - Auto-save to localStorage every 3 seconds
+   - Clear on submit
+   - "Cancel" restores from localStorage
+
+5. **Generation badge**
+   - Small pill next to article title: "Gen 3"
+   - Current generation: accent color
+   - Previous generations: muted gray
+
+6. **Muted article styling**
+   - Previous generations: 60% opacity, 0.9rem font
+   - Current generation: 100% opacity, 1rem font
+
+7. **Inline word-diff component**
+   - Additions: green background, +{text}
+   - Deletions: red background, strikethrough, [-text-]
+   - Phone-friendly: wrap long lines
+
+8. **App title customization**
+   - Settings page: text input for app_title
+   - Header: `<h1>{{ app_settings.app_title }}</h1>`
+   - Page titles: `<title>{{ app_settings.app_title }} - Inbox</title>`
+
+### User Journeys
+
+**Journey 1: Negative feedback on poorly-scored-high article**
+
+```text
+1. User reads article scored 8/10, finds it irrelevant (Xbox game development)
+2. User taps thumbs down
+3. Modal appears: "Want to help improve scoring?"
+4. User taps "Yes"
+5. System calls Claude to characterize article
+6. 5-Whats scorecard appears:
+   - Topic: Xbox game tooling
+   - Style: Press release
+   - Depth: Surface-level
+   - Emotion: Promotional
+   - Level: Everyday
+7. Feedback modal shows with scorecard above article
+8. User types: "I don't care about Xbox game development"
+9. User taps "Submit feedback"
+10. Toast: "Feedback recorded. Changes apply at midnight UTC."
+11. Next day (after midnight batch):
+    - New generation created
+    - Future Xbox articles scored lower
+    - Prompt diff shows: "+ Avoid Xbox game development news"
+```
+
+**Journey 2: Positive feedback on gem (low-scored article user loved)**
+
+```text
+1. User browses All view, filters to "Low Scored" (score < 5)
+2. Finds article about weather API internals, score 4/10
+3. Reads article, loves it
+4. User taps thumbs up
+5. Modal: "Want to help improve scoring?"
+6. User taps "Yes"
+7. 5-Whats scorecard:
+   - Topic: Weather data API design
+   - Style: Deep technical walkthrough
+   - Depth: Advanced - internal system details
+   - Emotion: Curiosity-inducing
+   - Level: Technical
+8. User types: "I LOVE deep dives into API internals like this"
+9. Submit
+10. Next day: Prompt refined to prioritize API architecture content
+```
+
+**Journey 3: Rating without refinement**
+
+```text
+1. User reads article, taps thumbs up
+2. Modal: "Want to help improve scoring?"
+3. User taps "No" (in a hurry)
+4. Rating stored, article.rating_refined = 0
+5. Article can be refined later from All view
+```
+
+**Journey 4: Retroactive refinement from All view**
+
+```text
+1. User navigates to All view
+2. Filters to "Rated but Not Refined"
+3. Sees list of articles with ratings but no feedback
+4. Clicks article, sees "Provide refinement feedback" button
+5. Enters heuristic-refiner mode (same flow as journey 1)
+```
+
+**Journey 5: Reviewing prompt history**
+
+```text
+1. User clicks "Prompt History" in top nav
+2. Sees generation list:
+   - Gen 4 (Active) - 3 hours ago - 2 feedback items
+   - Gen 3 - Yesterday - 5 feedback items
+   - Gen 2 - 2 days ago - 3 feedback items
+3. Expands Gen 3 diff:
+   - Shows word-level changes from Gen 2 → Gen 3
+   - Links to 5 feedback items
+4. Clicks feedback item link
+5. Sees original article + characterization + user's feedback text
+```
+
+### Edge Cases
+
+**REQ-RC-019, REQ-RC-020, REQ-RC-021**
+
+1. **No feedback in 24hr window**
+   - Batch job exits early
+   - Current generation remains active
+   - No new generation created
+
+2. **Conflicting feedback**
+   - Example: User A says "more politics", User B says "less politics"
+   - Refinement LLM receives both in same batch
+   - LLM reconciles based on pattern frequency
+   - If equal weight, LLM may not change that aspect
+
+3. **LLM characterization fails**
+   - API timeout or invalid response
+   - Store feedback without characterization_json
+   - Allow refinement batch to proceed with text-only feedback
+
+4. **Refinement LLM returns invalid prompt**
+   - JSON parsing fails or prompt too short/long
+   - Log warning with raw response
+   - Skip generation creation
+   - Feedback remains unlinked (generation_id = NULL)
+   - Retry in next batch (24hrs later)
+
+5. **User refreshes browser mid-feedback**
+   - localStorage preserves feedback text
+   - Re-display modal with saved text
+   - User can continue or clear
+
+6. **Article deleted before batch runs**
+   - Foreign key constraint: ON DELETE CASCADE
+   - Feedback deleted automatically
+   - Batch proceeds with remaining feedback
+
+### Error Handling Strategy
 
 ### Ingestion Errors
 
@@ -546,6 +960,13 @@ Reading Time: {article.reading_time_category}
 - **Claude API timeout**: Retry with exponential backoff (3 attempts)
 - **Rate limit**: Queue for later, process in next batch
 - **Invalid response**: Log raw response, skip scoring, flag for retry
+
+### Heuristic-Refiner Errors
+
+- **Characterization LLM timeout**: Allow feedback submission without characterization
+- **Refinement LLM timeout**: Skip generation, retry next batch
+- **Invalid refined prompt**: Log error, keep current generation active
+- **Database constraint violation**: Roll back transaction, log error
 
 ### Authentication Errors
 
@@ -738,3 +1159,45 @@ Reading Time: {article.reading_time_category}
 - **Location**: `src/reader/web/routes/api.py`
 - **Auth**: FastAPI Depends() with custom API key validator
 - **Rate limiting**: slowapi or custom middleware with in-memory token bucket
+
+### REQ-RC-019: Article Characterization
+
+- **Location**: `src/reader/scoring/characterization.py`
+- **Libraries**:
+  - `anthropic` (Claude API for 5-Whats generation)
+  - Pydantic model for FiveWhats response validation
+- **Prompt**: System prompt for structured characterization
+- **Caching**: No caching (single-shot per article)
+
+### REQ-RC-020: Heuristic-Refiner Feedback Collection
+
+- **Location**: `src/reader/web/routes/feedback.py`
+- **Libraries**:
+  - FastAPI route handlers
+  - JavaScript localStorage for feedback persistence
+- **Database**: Insert into heuristic_feedback table
+- **UI**: Modal component with 5-Whats display + text box
+
+### REQ-RC-021: Daily Refinement Batch
+
+- **Location**: `src/reader/refinement/batch.py`
+- **Scheduler**: Cron job or background task with schedule library
+- **Libraries**:
+  - `anthropic` (refinement LLM call)
+  - `difflib` (stdlib, word-diff computation)
+- **Execution**: UTC midnight daily
+- **Transaction**: Atomic generation creation + feedback linking
+
+### REQ-RC-022: Prompt History Page
+
+- **Location**: `src/reader/web/routes/prompt_history.py`
+- **Libraries**:
+  - Jinja2 templates for diff rendering
+  - Custom diff formatter for inline word-diff
+- **Query**: Join prompt_generations with heuristic_feedback
+
+### REQ-RC-023: App Customization
+
+- **Location**: `src/reader/web/routes/settings.py`
+- **Database**: app_settings table
+- **Template**: Context processor to inject app_title into all pages

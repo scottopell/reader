@@ -104,25 +104,26 @@ async def submit_article(
             source=article_data.source,
             content_preview=get_content_preview(extraction.content_markdown),
         )
-        scoring_response = await score_article(scoring_request)
+        scoring_result = await score_article(scoring_request)
 
         # Update article with score
-        # REQ-RC-005: Track which prompt version scored this article
+        # REQ-RC-005: Track which prompt version/generation scored this article
         score_data = ArticleScore(
-            llm_score=scoring_response.score,
-            llm_reasoning=scoring_response.reasoning,
-            reading_time_category=scoring_response.reading_time,
-            tags=scoring_response.tags,
-            prompt_version=scoring_response.prompt_version,
+            llm_score=scoring_result.response.score,
+            llm_reasoning=scoring_result.response.reasoning,
+            reading_time_category=scoring_result.response.reading_time,
+            tags=scoring_result.response.tags,
+            prompt_version=scoring_result.response.prompt_version,
+            generation_id=scoring_result.generation_id,
         )
         repo.update_score(article_id, score_data)
-        logger.info("Scored article %d: %.1f", article_id, scoring_response.score)
+        logger.info("Scored article %d: %.1f", article_id, scoring_result.response.score)
 
         return ArticleSubmissionResponse(
             status="success",
-            message=f"Article scored: {scoring_response.score:.1f}/10 - {scoring_response.reasoning}",
+            message=f"Article scored: {scoring_result.response.score:.1f}/10 - {scoring_result.response.reasoning}",
             article_id=article_id,
-            score=scoring_response.score,
+            score=scoring_result.response.score,
         )
     except ScoringError as e:
         logger.warning("Scoring failed for article %d: %s", article_id, e)

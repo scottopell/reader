@@ -6,6 +6,13 @@ from datetime import UTC, datetime
 
 from reader.db.connection import get_connection
 from reader.models.article import Article, ArticleCreate, ArticleScore, UserDecision
+from reader.models.scoring import (
+    AppSettings,
+    FiveWhats,
+    HeuristicFeedback,
+    HeuristicFeedbackCreate,
+    PromptGeneration,
+)
 from reader.models.source import FeedSource, FeedSourceCreate, SourceType
 
 
@@ -153,6 +160,7 @@ class ArticleRepository:
                     reading_time_category = ?,
                     tags = ?,
                     prompt_version = ?,
+                    generation_id = ?,
                     scored_at = ?
                 WHERE id = ?
                 """,
@@ -162,6 +170,7 @@ class ArticleRepository:
                     score.reading_time_category.value,
                     json.dumps(score.tags),
                     score.prompt_version,
+                    score.generation_id,
                     datetime.now(UTC).isoformat(),
                     article_id,
                 ),
@@ -169,20 +178,57 @@ class ArticleRepository:
             conn.commit()
 
     # REQ-RC-014: Update user decision
-    def update_decision(
-        self, article_id: int, decision: UserDecision, rating: int | None = None
-    ) -> None:
+    def update_decision(self, article_id: int, decision: UserDecision) -> None:
         """Update user decision on an article."""
         with get_connection() as conn:
             conn.execute(
                 """
                 UPDATE articles SET
                     user_decision = ?,
-                    user_rating = ?,
                     decided_at = ?
                 WHERE id = ?
                 """,
-                (decision.value, rating, datetime.now(UTC).isoformat(), article_id),
+                (decision.value, datetime.now(UTC).isoformat(), article_id),
+            )
+            conn.commit()
+
+    # REQ-RC-014: Update user rating (thumbs up/down)
+    def update_rating(self, article_id: int, rating: int) -> None:
+        """Update user thumbs rating on an article.
+
+        REQ-RC-014: WHEN user provides thumbs up or thumbs down rating
+        THE SYSTEM SHALL store the rating alongside the LLM score
+
+        Args:
+            article_id: Article ID
+            rating: -1 (thumbs down), 0 (no rating), or 1 (thumbs up)
+        """
+        if rating not in (-1, 0, 1):
+            msg = f"Rating must be -1, 0, or 1, got {rating}"
+            raise ValueError(msg)
+        with get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE articles SET
+                    user_rating = ?,
+                    rated_at = ?
+                WHERE id = ?
+                """,
+                (rating, datetime.now(UTC).isoformat(), article_id),
+            )
+            conn.commit()
+
+    # REQ-RC-014: Mark article as having contributed refinement feedback
+    def mark_rating_refined(self, article_id: int, refined: bool = True) -> None:
+        """Mark article as having provided heuristic-refiner feedback.
+
+        REQ-RC-014: WHEN user provides rating and enters heuristic-refiner mode
+        THE SYSTEM SHALL flag the article as having contributed refinement feedback
+        """
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE articles SET rating_refined = ? WHERE id = ?",
+                (int(refined), article_id),
             )
             conn.commit()
 
@@ -309,10 +355,13 @@ class ArticleRepository:
             reading_time_category=row["reading_time_category"],
             tags=tags,
             prompt_version=row["prompt_version"],
+            generation_id=row["generation_id"],
             scored_at=datetime.fromisoformat(row["scored_at"]) if row["scored_at"] else None,
             user_decision=UserDecision(row["user_decision"]),
-            user_rating=row["user_rating"],
             decided_at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
+            user_rating=row["user_rating"] or 0,
+            rating_refined=bool(row["rating_refined"]),
+            rated_at=datetime.fromisoformat(row["rated_at"]) if row["rated_at"] else None,
             in_bundle=bool(row["in_bundle"]),
             bundle_added_at=(
                 datetime.fromisoformat(row["bundle_added_at"]) if row["bundle_added_at"] else None
@@ -408,3 +457,261 @@ class FeedSourceRepository:
             ),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+
+class PromptGenerationRepository:
+    """Repository for prompt generation CRUD operations.
+
+    REQ-RC-005, REQ-RC-021, REQ-RC-022: Prompt generation tracking
+    """
+
+    def get_active(self) -> PromptGeneration | None:
+        """Get the currently active prompt generation."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM prompt_generations WHERE is_active = 1"
+            ).fetchone()
+            if row:
+                return self._row_to_generation(row)
+            return None
+
+    def get_by_id(self, generation_id: int) -> PromptGeneration | None:
+        """Get a prompt generation by ID."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM prompt_generations WHERE id = ?",
+                (generation_id,),
+            ).fetchone()
+            if row:
+                return self._row_to_generation(row)
+            return None
+
+    def get_all(self) -> list[PromptGeneration]:
+        """Get all prompt generations ordered by ID descending."""
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM prompt_generations ORDER BY id DESC"
+            ).fetchall()
+            return [self._row_to_generation(row) for row in rows]
+
+    def get_previous_n(self, n: int = 5) -> list[PromptGeneration]:
+        """Get the previous N generations (excluding current active).
+
+        REQ-RC-008: Display articles from the previous 5 prompt generations
+        """
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM prompt_generations
+                WHERE is_active = 0
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (n,),
+            ).fetchall()
+            return [self._row_to_generation(row) for row in rows]
+
+    def create(
+        self,
+        prompt_text: str,
+        diff_from_previous: str | None = None,
+        feedback_count: int = 0,
+        set_active: bool = True,
+    ) -> int:
+        """Create a new prompt generation.
+
+        REQ-RC-021: THE SYSTEM SHALL create new prompt generation from structured LLM response
+
+        Args:
+            prompt_text: The full prompt text
+            diff_from_previous: Word-diff from previous generation
+            feedback_count: Number of feedback items that produced this
+            set_active: Whether to set this as the active generation
+
+        Returns:
+            The ID of the created generation
+        """
+        with get_connection() as conn:
+            if set_active:
+                # Deactivate all existing generations
+                conn.execute("UPDATE prompt_generations SET is_active = 0")
+
+            cursor = conn.execute(
+                """
+                INSERT INTO prompt_generations (prompt_text, created_at, diff_from_previous, feedback_count, is_active)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    prompt_text,
+                    datetime.now(UTC).isoformat(),
+                    diff_from_previous,
+                    feedback_count,
+                    int(set_active),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+
+    def _row_to_generation(self, row: sqlite3.Row) -> PromptGeneration:
+        """Convert a database row to a PromptGeneration model."""
+        return PromptGeneration(
+            id=row["id"],
+            prompt_text=row["prompt_text"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            diff_from_previous=row["diff_from_previous"],
+            feedback_count=row["feedback_count"],
+            is_active=bool(row["is_active"]),
+        )
+
+
+class HeuristicFeedbackRepository:
+    """Repository for heuristic feedback CRUD operations.
+
+    REQ-RC-019, REQ-RC-020, REQ-RC-021: Heuristic-refiner feedback
+    """
+
+    def create(self, feedback: HeuristicFeedbackCreate) -> int:
+        """Create a new heuristic feedback entry.
+
+        REQ-RC-020: WHEN user submits feedback
+        THE SYSTEM SHALL store feedback with characterization and article linkage
+        """
+        with get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO heuristic_feedback (article_id, feedback_text, characterization_json, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    feedback.article_id,
+                    feedback.feedback_text,
+                    feedback.characterization_json,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+
+    def get_by_article(self, article_id: int) -> HeuristicFeedback | None:
+        """Get feedback for a specific article."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM heuristic_feedback WHERE article_id = ?",
+                (article_id,),
+            ).fetchone()
+            if row:
+                return self._row_to_feedback(row)
+            return None
+
+    def get_unprocessed_since(self, since: datetime) -> list[HeuristicFeedback]:
+        """Get all feedback since a given time that hasn't been processed.
+
+        REQ-RC-021: WHEN UTC midnight occurs
+        THE SYSTEM SHALL collect all heuristic-refiner feedback from the past 24 hours
+        """
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM heuristic_feedback
+                WHERE generation_id IS NULL AND created_at >= ?
+                ORDER BY created_at ASC
+                """,
+                (since.isoformat(),),
+            ).fetchall()
+            return [self._row_to_feedback(row) for row in rows]
+
+    def get_by_generation(self, generation_id: int) -> list[HeuristicFeedback]:
+        """Get all feedback items that produced a specific generation.
+
+        REQ-RC-022: THE SYSTEM SHALL link each generation to the feedback items that produced it
+        """
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM heuristic_feedback
+                WHERE generation_id = ?
+                ORDER BY created_at ASC
+                """,
+                (generation_id,),
+            ).fetchall()
+            return [self._row_to_feedback(row) for row in rows]
+
+    def link_to_generation(self, feedback_ids: list[int], generation_id: int) -> None:
+        """Link feedback items to the generation they produced.
+
+        REQ-RC-021: Update all feedback items: generation_id = new_generation.id
+        """
+        if not feedback_ids:
+            return
+        with get_connection() as conn:
+            placeholders = ",".join("?" * len(feedback_ids))
+            conn.execute(
+                f"UPDATE heuristic_feedback SET generation_id = ? WHERE id IN ({placeholders})",
+                [generation_id, *feedback_ids],
+            )
+            conn.commit()
+
+    def _row_to_feedback(self, row: sqlite3.Row) -> HeuristicFeedback:
+        """Convert a database row to a HeuristicFeedback model."""
+        characterization = None
+        if row["characterization_json"]:
+            try:
+                char_data = json.loads(row["characterization_json"])
+                characterization = FiveWhats(**char_data)
+            except (json.JSONDecodeError, TypeError):
+                pass  # Invalid JSON, leave as None
+
+        return HeuristicFeedback(
+            id=row["id"],
+            article_id=row["article_id"],
+            feedback_text=row["feedback_text"],
+            characterization=characterization,
+            created_at=datetime.fromisoformat(row["created_at"]),
+            generation_id=row["generation_id"],
+        )
+
+
+class AppSettingsRepository:
+    """Repository for application settings.
+
+    REQ-RC-023: Customize Application Appearance
+    """
+
+    def get(self, key: str, default: str | None = None) -> str | None:
+        """Get a setting value by key."""
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+            if row:
+                value: str = row["value"]
+                return value
+            return default
+
+    def set(self, key: str, value: str) -> None:
+        """Set a setting value (insert or update)."""
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO app_settings (key, value) VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+            conn.commit()
+
+    def get_all(self) -> AppSettings:
+        """Get all application settings as a model.
+
+        REQ-RC-023: THE SYSTEM SHALL default application title to 'nerd-reader'
+        """
+        app_title = self.get("app_title", "nerd-reader") or "nerd-reader"
+        return AppSettings(app_title=app_title)
+
+    def update_app_title(self, title: str) -> None:
+        """Update the application title.
+
+        REQ-RC-023: THE SYSTEM SHALL allow customization of application title
+        """
+        self.set("app_title", title)

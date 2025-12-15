@@ -212,17 +212,18 @@ async def _score_article(article_id: int, article_repo: ArticleRepository) -> bo
             source=article.source,
             content_preview=get_content_preview(article.content_markdown),
         )
-        scoring_response = await score_article(scoring_request)
+        scoring_result = await score_article(scoring_request)
 
         score_data = ArticleScore(
-            llm_score=scoring_response.score,
-            llm_reasoning=scoring_response.reasoning,
-            reading_time_category=scoring_response.reading_time,
-            tags=scoring_response.tags,
-            prompt_version=scoring_response.prompt_version,
+            llm_score=scoring_result.response.score,
+            llm_reasoning=scoring_result.response.reasoning,
+            reading_time_category=scoring_result.response.reading_time,
+            tags=scoring_result.response.tags,
+            prompt_version=scoring_result.response.prompt_version,
+            generation_id=scoring_result.generation_id,
         )
         article_repo.update_score(article_id, score_data)
-        logger.info("Scored article %d: %.1f", article_id, scoring_response.score)
+        logger.info("Scored article %d: %.1f", article_id, scoring_result.response.score)
         return True
     except ScoringError as e:
         logger.warning("Scoring failed for article %d: %s", article_id, e)

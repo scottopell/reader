@@ -122,13 +122,18 @@ separate files for easy navigation.
 ### REQ-RC-008: Browse Articles by Relevance Score
 
 WHEN user accesses the inbox
-THE SYSTEM SHALL display all unread articles sorted by score (highest first)
+THE SYSTEM SHALL display articles from the current prompt generation sorted by score (highest first)
 
 THE SYSTEM SHALL show for each article: title, source, score, reading time
 estimate, and LLM reasoning
 
+THE SYSTEM SHALL display articles from the previous 5 prompt generations with muted visual treatment
+
+THE SYSTEM SHALL hide articles from prompt generations older than the previous 5
+
 **Rationale:** Users want to quickly scan and cherry-pick interesting articles
-with AI reasoning visible.
+with AI reasoning visible, focused on articles scored with the current prompt while
+preserving recent history without infinite clutter.
 
 ---
 
@@ -175,36 +180,43 @@ reference, with the best matches appearing first.
 THE SYSTEM SHALL by default show only articles scoring above the median (p50+)
 
 WHEN user clicks "Show All"
-THE SYSTEM SHALL display all articles regardless of score
+THE SYSTEM SHALL display all articles with faceted filtering by prompt generation and rating
+
+THE SYSTEM SHALL provide dual sort options: LLM score and user rating
 
 THE SYSTEM SHALL persist the user's filter preference
 
-**Rationale:** Reduces noise by default while keeping everything accessible.
+**Rationale:** Reduces noise by default while keeping everything accessible with
+flexible views for retroactive refinement and historical analysis.
 
 ---
 
 ### REQ-RC-013: Monitor Scoring Accuracy
 
 WHEN user accesses the stats page
-THE SYSTEM SHALL display precision (% of sent articles actually read)
+THE SYSTEM SHALL display percentage of thumbs-up ratings in high-scored versus low-scored articles per generation
 
-THE SYSTEM SHALL display recall (% of read articles that were auto-recommended)
+THE SYSTEM SHALL display generation-over-generation improvement trends
 
-THE SYSTEM SHALL show trends over time
+THE SYSTEM SHALL show how rating patterns change across prompt generations
 
-**Rationale:** Users want visibility into scoring performance to tune prompts.
+**Rationale:** Users want visibility into scoring performance to understand how
+prompt refinement improves relevance detection over time.
 
 ---
 
-### REQ-RC-014: Learn from Reading Decisions
+### REQ-RC-014: Collect User Feedback via Ratings
 
-THE SYSTEM SHALL record user decisions: 'sent', 'skipped', 'read', 'pending'
+WHEN user provides thumbs up or thumbs down rating on an article
+THE SYSTEM SHALL store the rating alongside the LLM score
 
-WHEN user provides post-reading rating
-THE SYSTEM SHALL store rating alongside LLM score
+WHEN user provides rating and enters heuristic-refiner mode
+THE SYSTEM SHALL flag the article as having contributed refinement feedback
 
-**Rationale:** Users want precision/recall analysis to improve scoring over
-time.
+THE SYSTEM SHALL link the article to the prompt generation record if feedback produced a refinement
+
+**Rationale:** Users want to directly influence scoring improvements through simple
+thumbs up/down signals without requiring developer access to prompt editing.
 
 ---
 
@@ -264,5 +276,90 @@ THE SYSTEM SHALL include only articles marked for device bundle
 
 **Rationale:** iOS Shortcuts can fetch bundle and save to Files app for X4
 transfer.
+
+---
+
+### REQ-RC-019: Characterize Articles for Refinement
+
+WHEN user enters heuristic-refiner mode for an article
+THE SYSTEM SHALL issue an LLM call to characterize the article
+
+THE SYSTEM SHALL return a 5-Whats scorecard containing: topic, writing style, depth, emotional impact, and writing level
+
+THE SYSTEM SHALL display the characterization above the article content
+
+**Rationale:** Users want structured characterization to guide their feedback,
+making it easier to articulate what they liked or disliked about an article.
+
+---
+
+### REQ-RC-020: Collect Heuristic-Refiner Feedback
+
+WHEN user provides thumbs rating
+THE SYSTEM SHALL prompt user to optionally enter heuristic-refiner mode
+
+WHEN user enters heuristic-refiner mode
+THE SYSTEM SHALL display 5-Whats characterization above article content
+
+THE SYSTEM SHALL display feedback text box in hideable modal
+
+THE SYSTEM SHALL preserve feedback text across browser refresh
+
+WHEN user submits feedback
+THE SYSTEM SHALL store feedback with characterization and article linkage
+
+**Rationale:** Users want to provide contextual feedback on articles to improve
+scoring, with the option to give detailed input when motivated without forcing it
+for every rating.
+
+---
+
+### REQ-RC-021: Refine Prompts from Daily Feedback
+
+WHEN UTC midnight occurs
+THE SYSTEM SHALL collect all heuristic-refiner feedback from the past 24 hours
+
+WHEN feedback exists
+THE SYSTEM SHALL issue refinement LLM call with current prompt and all characterization-feedback pairs
+
+THE SYSTEM SHALL create new prompt generation from structured LLM response
+
+THE SYSTEM SHALL record diff between previous and new prompt
+
+WHEN no feedback exists in the 24-hour window
+THE SYSTEM SHALL take no action and continue using the current generation
+
+**Rationale:** Users want daily evolution of scoring heuristics based on their
+feedback without manual prompt editing, creating a closed feedback loop that
+continuously improves relevance detection.
+
+---
+
+### REQ-RC-022: Display Prompt Evolution History
+
+THE SYSTEM SHALL provide top-level navigation to Prompt History page
+
+THE SYSTEM SHALL display all prompt generations with timestamps
+
+THE SYSTEM SHALL display inline word-diff between adjacent generations
+
+THE SYSTEM SHALL link each generation to the feedback items that produced it
+
+**Rationale:** Users want visibility into how their feedback shaped prompt
+evolution, building trust in the refinement system and understanding scoring
+changes.
+
+---
+
+### REQ-RC-023: Customize Application Appearance
+
+THE SYSTEM SHALL allow customization of application title
+
+THE SYSTEM SHALL default application title to 'nerd-reader'
+
+THE SYSTEM SHALL display configured title in UI header and page titles
+
+**Rationale:** Users want to personalize their reading interface, making the
+application feel like their own curation tool.
 
 ---

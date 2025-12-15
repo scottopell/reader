@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Provide Feedback - {{ app_settings.app_title }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 16px;
+            color: #007bff;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        h1 {
+            margin: 0 0 8px 0;
+            font-size: 24px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: #333;
+        }
+        /* REQ-RC-019: 5-Whats characterization display */
+        .five-whats {
+            display: grid;
+            gap: 12px;
+        }
+        .what-item {
+            display: flex;
+            gap: 12px;
+            align-items: baseline;
+        }
+        .what-label {
+            font-weight: 600;
+            color: #495057;
+            min-width: 80px;
+        }
+        .what-value {
+            color: #333;
+            background: #f8f9fa;
+            padding: 4px 12px;
+            border-radius: 4px;
+        }
+        .error-box {
+            background: #f8d7da;
+            border: 1px solid #f5c2c7;
+            color: #842029;
+            padding: 12px;
+            border-radius: 4px;
+        }
+        /* REQ-RC-020: Feedback textarea */
+        .feedback-form textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .feedback-form textarea:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .feedback-hint {
+            font-size: 13px;
+            color: #666;
+            margin-top: 8px;
+        }
+        .submit-row {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .submit-btn {
+            padding: 10px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .submit-btn:hover { background: #0056b3; }
+        .cancel-btn {
+            padding: 10px 24px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .cancel-btn:hover { background: #545b62; }
+        /* Existing feedback display */
+        .existing-feedback {
+            background: #d1e7dd;
+            border: 1px solid #a3cfbb;
+            padding: 16px;
+            border-radius: 4px;
+        }
+        .existing-feedback h3 {
+            margin: 0 0 12px 0;
+            color: #0f5132;
+        }
+        .existing-feedback p {
+            margin: 0;
+            color: #0f5132;
+        }
+        .draft-indicator {
+            font-size: 12px;
+            color: #6c757d;
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+    <a href="/article/{{ article.id }}" class="back-link">&larr; Back to Article</a>
+
+    <h1>Provide Feedback</h1>
+    <p class="subtitle">Help improve article scoring by explaining your rating for "{{ article.title }}"</p>
+
+    {% if existing_feedback %}
+    <!-- Already provided feedback -->
+    <div class="card">
+        <div class="existing-feedback">
+            <h3>Feedback Already Submitted</h3>
+            <p>{{ existing_feedback.feedback_text }}</p>
+        </div>
+    </div>
+    {% else %}
+    <!-- REQ-RC-019: 5-Whats characterization -->
+    <div class="card">
+        <h2>Article Characterization (5-Whats)</h2>
+        {% if characterization %}
+        <div class="five-whats">
+            <div class="what-item">
+                <span class="what-label">Topic:</span>
+                <span class="what-value">{{ characterization.topic }}</span>
+            </div>
+            <div class="what-item">
+                <span class="what-label">Style:</span>
+                <span class="what-value">{{ characterization.style }}</span>
+            </div>
+            <div class="what-item">
+                <span class="what-label">Depth:</span>
+                <span class="what-value">{{ characterization.depth }}</span>
+            </div>
+            <div class="what-item">
+                <span class="what-label">Emotion:</span>
+                <span class="what-value">{{ characterization.emotion }}</span>
+            </div>
+            <div class="what-item">
+                <span class="what-label">Level:</span>
+                <span class="what-value">{{ characterization.level }}</span>
+            </div>
+        </div>
+        {% elif characterization_error %}
+        <div class="error-box">
+            <strong>Characterization unavailable:</strong> {{ characterization_error }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- REQ-RC-020: Feedback form with localStorage persistence -->
+    <div class="card">
+        <h2>Your Feedback <span class="draft-indicator" id="draft-indicator"></span></h2>
+        <form action="/article/{{ article.id }}/refine" method="post" class="feedback-form" id="feedback-form">
+            <textarea
+                name="feedback_text"
+                id="feedback_text"
+                placeholder="Explain why you rated this article the way you did. What made it interesting or uninteresting? What aspects of the content influenced your decision?"
+            ></textarea>
+            <p class="feedback-hint">
+                Be specific about what you liked or disliked. Your feedback helps train better article scoring.
+            </p>
+
+            {% if characterization %}
+            <input type="hidden" name="characterization_json" value='{{ characterization.model_dump_json() }}'>
+            {% endif %}
+
+            <div class="submit-row">
+                <button type="submit" class="submit-btn">Submit Feedback</button>
+                <a href="/article/{{ article.id }}" class="cancel-btn">Cancel</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // REQ-RC-020: localStorage persistence for feedback draft
+        const storageKey = 'refiner_draft_{{ article.id }}';
+        const textarea = document.getElementById('feedback_text');
+        const draftIndicator = document.getElementById('draft-indicator');
+        const form = document.getElementById('feedback-form');
+
+        // Restore draft on load
+        const savedDraft = localStorage.getItem(storageKey);
+        if (savedDraft) {
+            textarea.value = savedDraft;
+            draftIndicator.textContent = '(draft restored)';
+        }
+
+        // Save draft on input
+        textarea.addEventListener('input', function() {
+            localStorage.setItem(storageKey, this.value);
+            draftIndicator.textContent = '(draft saved)';
+        });
+
+        // Clear draft on successful submit
+        form.addEventListener('submit', function() {
+            localStorage.removeItem(storageKey);
+        });
+    </script>
+    {% endif %}
+</body>
+</html>

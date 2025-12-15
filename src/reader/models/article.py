@@ -31,6 +31,15 @@ class ExtractionStatus(str, Enum):
     MANUAL_REVIEW = "manual_review"
 
 
+# REQ-RC-014: Thumbs rating values
+class ThumbsRating(int, Enum):
+    """User rating using thumbs up/down system."""
+
+    DOWN = -1  # Thumbs down
+    NONE = 0  # No rating
+    UP = 1  # Thumbs up
+
+
 class ArticleCreate(BaseModel):
     """Data required to create a new article."""
 
@@ -53,7 +62,8 @@ class ArticleScore(BaseModel):
     llm_reasoning: str = Field(description="Brief explanation of score")
     reading_time_category: ReadingTimeCategory = Field(description="Estimated reading time")
     tags: list[str] = Field(default_factory=list, description="Suggested tags")
-    prompt_version: str = Field(description="Prompt version used for scoring")
+    prompt_version: str = Field(description="Prompt version used for scoring (DEPRECATED)")
+    generation_id: int | None = Field(default=None, description="Prompt generation ID")
 
 
 class Article(BaseModel):
@@ -73,13 +83,22 @@ class Article(BaseModel):
     llm_reasoning: str | None = None
     reading_time_category: ReadingTimeCategory | None = None
     tags: list[str] = Field(default_factory=list)
-    prompt_version: str | None = None
     scored_at: datetime | None = None
+
+    # REQ-RC-005: Prompt versioning (DEPRECATED: use generation_id)
+    prompt_version: str | None = None
+
+    # REQ-RC-005, REQ-RC-008: Prompt generation tracking
+    generation_id: int | None = None
 
     # User decisions (REQ-RC-014)
     user_decision: UserDecision = UserDecision.PENDING
-    user_rating: int | None = Field(default=None, ge=1, le=5)
     decided_at: datetime | None = None
+
+    # REQ-RC-014: User rating (thumbs up/down: -1, 0, 1)
+    user_rating: int = Field(default=0, ge=-1, le=1)
+    rating_refined: bool = False
+    rated_at: datetime | None = None
 
     # Bundle (REQ-RC-009)
     in_bundle: bool = False
