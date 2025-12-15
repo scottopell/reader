@@ -51,9 +51,12 @@ CREATE TABLE articles (
   content_markdown TEXT NOT NULL,    -- Extracted content as Markdown
   received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  -- REQ-RC-004: LLM scoring
-  llm_score REAL,                    -- 1-10 relevance score
-  llm_reasoning TEXT,                -- Brief explanation
+  -- REQ-RC-004 (DEPRECATED), REQ-RC-024, REQ-RC-025: Elo-based scoring
+  llm_score REAL,                    -- DEPRECATED: 1-10 relevance score (kept for migration)
+  elo_rating REAL DEFAULT 1500,      -- REQ-RC-025: Elo rating (unbounded, default 1500)
+  elo_comparisons INTEGER DEFAULT 0, -- REQ-RC-028: Number of comparisons completed
+  elo_confidence BOOLEAN DEFAULT 0,  -- REQ-RC-025: TRUE when >= 7 comparisons done
+  llm_reasoning TEXT,                -- Brief explanation (from comparisons)
   reading_time_category TEXT,        -- 'quick', 'medium', 'deep'
   word_count INTEGER,
   tags TEXT,                         -- JSON array
@@ -80,10 +83,36 @@ CREATE TABLE articles (
 );
 
 CREATE INDEX idx_articles_score ON articles(llm_score DESC);
+CREATE INDEX idx_articles_elo ON articles(elo_rating DESC);  -- REQ-RC-024: Sort by Elo
 CREATE INDEX idx_articles_received ON articles(received_at DESC);
 CREATE INDEX idx_articles_generation ON articles(generation_id);
 CREATE INDEX idx_articles_rating ON articles(user_rating);
 CREATE INDEX idx_articles_bundle ON articles(in_bundle);
+
+-- REQ-RC-028: Pairwise comparison history
+CREATE TABLE elo_comparisons (
+  id INTEGER PRIMARY KEY,
+  article_a_id INTEGER NOT NULL,     -- First article in comparison
+  article_b_id INTEGER NOT NULL,     -- Second article in comparison
+  winner_id INTEGER,                 -- Article that won (NULL for tie)
+  llm_reasoning TEXT,                -- LLM explanation for choice
+  article_a_elo_before REAL,         -- Elo rating before comparison
+  article_b_elo_before REAL,
+  article_a_elo_after REAL,          -- Elo rating after comparison
+  article_b_elo_after REAL,
+  k_factor INTEGER DEFAULT 32,       -- K-factor used in this comparison
+  generation_id INTEGER,             -- Which prompt generation performed comparison
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (article_a_id) REFERENCES articles(id) ON DELETE CASCADE,
+  FOREIGN KEY (article_b_id) REFERENCES articles(id) ON DELETE CASCADE,
+  FOREIGN KEY (winner_id) REFERENCES articles(id) ON DELETE SET NULL,
+  FOREIGN KEY (generation_id) REFERENCES prompt_generations(id)
+);
+
+CREATE INDEX idx_comparisons_article_a ON elo_comparisons(article_a_id);
+CREATE INDEX idx_comparisons_article_b ON elo_comparisons(article_b_id);
+CREATE INDEX idx_comparisons_generation ON elo_comparisons(generation_id);
 
 -- REQ-RC-011: Full-text search
 CREATE VIRTUAL TABLE articles_fts USING fts5(
@@ -466,7 +495,9 @@ def should_check_source(source) -> bool:
     return elapsed_hours >= source.check_interval_hours
 ```
 
-### LLM Scoring Flow (REQ-RC-004, REQ-RC-005)
+### LLM Scoring Flow (REQ-RC-004 DEPRECATED, REQ-RC-005)
+
+**DEPRECATED:** This absolute 1-10 scoring is replaced by REQ-RC-024 Elo-based pairwise comparisons.
 
 ```python
 async def score_unscored_articles():
@@ -517,6 +548,286 @@ Content (first 500 words):
             prompt_version=prompt_version.version,
             scored_at=datetime.utcnow()
         )
+```
+
+### Elo-Based Pairwise Scoring Flow (REQ-RC-024, REQ-RC-025, REQ-RC-026, REQ-RC-028)
+
+```python
+async def score_new_article_via_elo(article_id: int):
+    """
+    Score new article using pairwise Elo comparisons.
+    REQ-RC-024: Perform pairwise comparisons
+    REQ-RC-025: Initialize at 1500, mark confidence after 7 rounds
+    REQ-RC-026: Select 7 random opponents, prefer current generation
+    """
+    article = await article_repo.get_by_id(article_id)
+    generation = await get_active_generation()
+
+    # REQ-RC-025: Initialize new article at Elo 1500
+    await article_repo.update_elo(article_id, elo_rating=1500.0, elo_comparisons=0)
+
+    # REQ-RC-026: Select 7 opponents (or all if < 7 available)
+    opponents = await select_comparison_opponents(
+        generation_id=generation.id,
+        count=7
+    )
+
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+
+    for opponent in opponents:
+        # Perform pairwise comparison
+        result = await compare_articles(client, article, opponent, generation)
+
+        # REQ-RC-028: Record comparison before Elo update
+        comparison = await elo_comparison_repo.create(
+            article_a_id=article.id,
+            article_b_id=opponent.id,
+            winner_id=result.winner_id,
+            llm_reasoning=result.reasoning,
+            article_a_elo_before=article.elo_rating,
+            article_b_elo_before=opponent.elo_rating,
+            generation_id=generation.id
+        )
+
+        # Calculate new Elo ratings using standard formula
+        new_elo_a, new_elo_b = calculate_elo_update(
+            rating_a=article.elo_rating,
+            rating_b=opponent.elo_rating,
+            outcome=result.outcome,  # 1.0 (A wins), 0.5 (tie), 0.0 (B wins)
+            k_factor=32
+        )
+
+        # Update both articles' Elo ratings
+        await article_repo.update_elo(
+            article.id,
+            elo_rating=new_elo_a,
+            elo_comparisons=article.elo_comparisons + 1
+        )
+        await article_repo.update_elo(
+            opponent.id,
+            elo_rating=new_elo_b,
+            elo_comparisons=opponent.elo_comparisons + 1
+        )
+
+        # REQ-RC-028: Record final Elo values
+        await elo_comparison_repo.update_final_elos(
+            comparison.id,
+            article_a_elo_after=new_elo_a,
+            article_b_elo_after=new_elo_b
+        )
+
+        # Update local object for next iteration
+        article.elo_rating = new_elo_a
+        article.elo_comparisons += 1
+
+        # Respect scoring delay between comparisons
+        await asyncio.sleep(settings.scoring_delay_seconds)
+
+    # REQ-RC-025: Mark as confident after 7 comparisons
+    if article.elo_comparisons >= 7:
+        await article_repo.update_elo_confidence(article.id, confident=True)
+
+
+async def select_comparison_opponents(
+    generation_id: int,
+    count: int
+) -> list[Article]:
+    """
+    REQ-RC-026: Select opponents for comparison.
+    Prefer articles from current generation, fall back to any scored articles.
+    """
+    # First try: articles from current generation with Elo confidence
+    candidates = await article_repo.query("""
+        SELECT * FROM articles
+        WHERE generation_id = ?
+        AND elo_confidence = 1
+        ORDER BY RANDOM()
+        LIMIT ?
+    """, generation_id, count)
+
+    # If insufficient, add any scored articles
+    if len(candidates) < count:
+        additional = await article_repo.query("""
+            SELECT * FROM articles
+            WHERE elo_comparisons > 0
+            AND id NOT IN (?)
+            ORDER BY RANDOM()
+            LIMIT ?
+        """, [c.id for c in candidates], count - len(candidates))
+        candidates.extend(additional)
+
+    return candidates
+
+
+async def compare_articles(
+    client: anthropic.AsyncAnthropic,
+    article_a: Article,
+    article_b: Article,
+    generation: PromptGeneration
+) -> ComparisonResult:
+    """
+    REQ-RC-024: Ask LLM which article is more relevant.
+    Returns outcome: 1.0 (A wins), 0.5 (tie), 0.0 (B wins).
+    """
+    system_prompt = [
+        {
+            "type": "text",
+            "text": generation.prompt_text,
+            "cache_control": {"type": "ephemeral"}
+        }
+    ]
+
+    user_prompt = f"""
+Compare these two articles and determine which is MORE RELEVANT to the user's interests.
+Respond with: "A", "B", or "TIE".
+
+Article A:
+Title: {article_a.title}
+Source: {article_a.source}
+Content: {article_a.content_markdown[:1000]}
+
+Article B:
+Title: {article_b.title}
+Source: {article_b.source}
+Content: {article_b.content_markdown[:1000]}
+
+Which article is more relevant? Provide:
+1. Choice: A, B, or TIE
+2. Reasoning: Brief explanation (1-2 sentences)
+"""
+
+    response = await client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=256,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+        response_format={
+            "type": "json_schema",
+            "json_schema": ComparisonResponseSchema
+        }
+    )
+
+    result = json.loads(response.content[0].text)
+
+    # Map choice to Elo outcome
+    if result['choice'] == 'A':
+        outcome = 1.0
+        winner_id = article_a.id
+    elif result['choice'] == 'B':
+        outcome = 0.0
+        winner_id = article_b.id
+    else:  # TIE
+        outcome = 0.5
+        winner_id = None
+
+    return ComparisonResult(
+        outcome=outcome,
+        winner_id=winner_id,
+        reasoning=result['reasoning']
+    )
+
+
+def calculate_elo_update(
+    rating_a: float,
+    rating_b: float,
+    outcome: float,
+    k_factor: int = 32
+) -> tuple[float, float]:
+    """
+    Standard Elo rating calculation.
+
+    Args:
+        rating_a: Current Elo rating of article A
+        rating_b: Current Elo rating of article B
+        outcome: 1.0 if A wins, 0.5 if tie, 0.0 if B wins
+        k_factor: How much ratings change (32 is standard for chess)
+
+    Returns:
+        (new_rating_a, new_rating_b)
+    """
+    # Expected score for A
+    expected_a = 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+
+    # Expected score for B
+    expected_b = 1 - expected_a
+
+    # Actual outcomes
+    actual_a = outcome
+    actual_b = 1 - outcome
+
+    # New ratings
+    new_rating_a = rating_a + k_factor * (actual_a - expected_a)
+    new_rating_b = rating_b + k_factor * (actual_b - expected_b)
+
+    return (new_rating_a, new_rating_b)
+```
+
+### Elo-to-Percentile Mapping (REQ-RC-027)
+
+```python
+async def get_elo_percentile(elo_rating: float) -> float:
+    """
+    REQ-RC-027: Map Elo rating to percentile rank.
+
+    Returns value 0-100 representing what percentage of articles
+    this article outranks.
+    """
+    # Count articles with lower Elo ratings
+    result = await db.query_one("""
+        SELECT
+            COUNT(*) FILTER (WHERE elo_rating < ?) as below,
+            COUNT(*) as total
+        FROM articles
+        WHERE elo_confidence = 1
+    """, elo_rating)
+
+    if result.total == 0:
+        return 50.0  # Default to median if no scored articles
+
+    percentile = (result.below / result.total) * 100
+    return percentile
+
+
+async def get_articles_above_median() -> list[Article]:
+    """
+    REQ-RC-027, REQ-RC-012: Get articles with percentile >= 50.
+    Used for default inbox filtering.
+    """
+    # Calculate median Elo rating
+    median_elo = await db.query_one("""
+        SELECT elo_rating
+        FROM articles
+        WHERE elo_confidence = 1
+        ORDER BY elo_rating
+        LIMIT 1
+        OFFSET (SELECT COUNT(*) FROM articles WHERE elo_confidence = 1) / 2
+    """)
+
+    # Fetch articles above median
+    articles = await db.query("""
+        SELECT *, elo_rating
+        FROM articles
+        WHERE elo_confidence = 1
+        AND elo_rating >= ?
+        ORDER BY elo_rating DESC
+    """, median_elo.elo_rating)
+
+    # Add percentile to each article for display
+    for article in articles:
+        article.percentile = await get_elo_percentile(article.elo_rating)
+
+    return articles
+
+
+# Pydantic model for UI display
+class ArticleWithPercentile(BaseModel):
+    """REQ-RC-027: Article with normalized Elo display."""
+    id: int
+    title: str
+    elo_rating: float          # Raw Elo (e.g., 1523.4)
+    percentile: float          # User-facing rank (e.g., 73.2)
+    elo_comparisons: int       # Number of comparisons (confidence indicator)
+    elo_confidence: bool       # Whether >= 7 comparisons done
 ```
 
 ### Bundle Generation Flow (REQ-RC-007, REQ-RC-009)
@@ -1201,3 +1512,32 @@ async def prompt_history():
 - **Location**: `src/reader/web/routes/settings.py`
 - **Database**: app_settings table
 - **Template**: Context processor to inject app_title into all pages
+
+### REQ-RC-024 through REQ-RC-028: Elo-Based Pairwise Scoring
+
+- **Location**: `src/reader/scoring/elo.py`
+- **Libraries**:
+  - `anthropic` (Claude API for pairwise comparisons)
+  - Standard library `math` for Elo calculations
+- **Database**:
+  - Articles table: `elo_rating`, `elo_comparisons`, `elo_confidence` columns
+  - `elo_comparisons` table for history tracking
+- **Repository**: `src/reader/db/elo_repository.py`
+- **Data models**: `src/reader/models/scoring.py` (ComparisonResult, ArticleWithPercentile)
+- **Configuration**:
+  - `ELO_K_FACTOR` (default: 32, controls rating volatility)
+  - `ELO_COMPARISONS_FOR_CONFIDENCE` (default: 7, minimum comparisons for stable rating)
+  - `ELO_OPPONENT_COUNT` (default: 7, comparisons per new article)
+- **Migration strategy**:
+  - Add new columns to articles table with defaults
+  - Keep `llm_score` column for backward compatibility during transition
+  - Bootstrap existing articles: convert 1-10 scores to initial Elo via mapping:
+    - Score 1-3: Elo 1200-1350
+    - Score 4-6: Elo 1400-1550
+    - Score 7-10: Elo 1600-1800
+  - Mark bootstrapped articles as `elo_confidence = 0` to trigger re-comparison
+  - Option 2: Leave existing articles with old scores, only apply Elo to new articles
+- **UI updates**:
+  - Article cards show: "Elo: 1523 (73rd percentile)" with confidence indicator
+  - Comparison history link in article detail view
+  - Stats page: Elo distribution histogram

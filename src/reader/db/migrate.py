@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS articles (
   content_markdown TEXT NOT NULL,
   received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  -- REQ-RC-004: LLM scoring
+  -- REQ-RC-004: LLM scoring (DEPRECATED: use elo_rating)
   llm_score REAL,
   llm_reasoning TEXT,
   reading_time_category TEXT,
@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS articles (
 
   -- REQ-RC-005, REQ-RC-008: Prompt generation tracking
   generation_id INTEGER,
+
+  -- REQ-RC-024, REQ-RC-025: Elo-based pairwise comparison scoring
+  elo_rating REAL DEFAULT 1500,
+  elo_comparisons INTEGER DEFAULT 0,
+  elo_confidence BOOLEAN DEFAULT 0,
 
   -- REQ-RC-014: User decision tracking
   user_decision TEXT DEFAULT 'pending',
@@ -133,6 +138,31 @@ CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- REQ-RC-028: Elo comparison history
+CREATE TABLE IF NOT EXISTS elo_comparisons (
+  id INTEGER PRIMARY KEY,
+  article_a_id INTEGER NOT NULL,
+  article_b_id INTEGER NOT NULL,
+  winner_id INTEGER,
+  llm_reasoning TEXT,
+  article_a_elo_before REAL NOT NULL,
+  article_a_elo_after REAL NOT NULL,
+  article_b_elo_before REAL NOT NULL,
+  article_b_elo_after REAL NOT NULL,
+  k_factor REAL NOT NULL,
+  generation_id INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (article_a_id) REFERENCES articles(id) ON DELETE CASCADE,
+  FOREIGN KEY (article_b_id) REFERENCES articles(id) ON DELETE CASCADE,
+  FOREIGN KEY (winner_id) REFERENCES articles(id) ON DELETE SET NULL,
+  FOREIGN KEY (generation_id) REFERENCES prompt_generations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_elo_comparisons_article_a ON elo_comparisons(article_a_id);
+CREATE INDEX IF NOT EXISTS idx_elo_comparisons_article_b ON elo_comparisons(article_b_id);
+CREATE INDEX IF NOT EXISTS idx_elo_comparisons_created ON elo_comparisons(created_at);
 
 -- REQ-RC-013: Eval metrics (updated for generation-based analysis)
 CREATE TABLE IF NOT EXISTS eval_metrics (

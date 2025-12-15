@@ -196,7 +196,10 @@ async def _process_entry(
 
 
 async def _score_article(article_id: int, article_repo: ArticleRepository) -> bool:
-    """Score an article with the LLM. Returns True on success."""
+    """Score an article with Elo-based pairwise comparisons. Returns True on success.
+
+    REQ-RC-024: Use pairwise comparisons instead of absolute 1-10 scoring.
+    """
     article = article_repo.get_by_id(article_id)
     if not article:
         return False
@@ -206,27 +209,28 @@ async def _score_article(article_id: int, article_repo: ArticleRepository) -> bo
         return False
 
     try:
-        scoring_request = ScoringRequest(
-            article_id=article_id,
-            title=article.title,
-            source=article.source,
-            content_preview=get_content_preview(article.content_markdown),
-        )
-        scoring_result = await score_article(scoring_request)
+        from reader.scoring.elo_scoring import score_article_with_elo
 
-        score_data = ArticleScore(
-            llm_score=scoring_result.response.score,
-            llm_reasoning=scoring_result.response.reasoning,
-            reading_time_category=scoring_result.response.reading_time,
-            tags=scoring_result.response.tags,
-            prompt_version=scoring_result.response.prompt_version,
-            generation_id=scoring_result.generation_id,
-        )
-        article_repo.update_score(article_id, score_data)
-        logger.info("Scored article %d: %.1f", article_id, scoring_result.response.score)
-        return True
-    except ScoringError as e:
-        logger.warning("Scoring failed for article %d: %s", article_id, e)
+        comparisons_completed, errors = await score_article_with_elo(article_id)
+
+        if errors:
+            logger.warning(
+                "Article %d scored with %d comparisons but had %d errors",
+                article_id,
+                comparisons_completed,
+                len(errors),
+            )
+
+        # Consider it successful if at least one comparison completed
+        if comparisons_completed > 0:
+            logger.info("Scored article %d with %d Elo comparisons", article_id, comparisons_completed)
+            return True
+        else:
+            logger.warning("No comparisons completed for article %d", article_id)
+            return False
+
+    except Exception as e:
+        logger.warning("Elo scoring failed for article %d: %s", article_id, e)
         return False
 
 
@@ -286,9 +290,15 @@ async def ingest_feed(source: FeedSource) -> IngestionResult:
                 new_article_ids.append(article_id)
 
         # Score new articles
+        from reader.config import get_settings
+        settings = get_settings()
+
         for article_id in new_article_ids:
             if await _score_article(article_id, article_repo):
                 result.entries_scored += 1
+            # Throttle scoring to prevent GPU overload
+            if settings.scoring_delay_seconds > 0:
+                await asyncio.sleep(settings.scoring_delay_seconds)
 
     # Update last_checked timestamp
     source_repo.update_last_checked(source.id)

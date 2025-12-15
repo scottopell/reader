@@ -75,6 +75,10 @@ class Settings(BaseSettings):
         default=7200,  # 2 hours
         description="Interval between email checks in seconds",
     )
+    scoring_delay_seconds: float = Field(
+        default=0.0,
+        description="Delay between scoring operations (prevents GPU overload)",
+    )
 
     # Server
     host: str = Field(default="127.0.0.1", description="Server host")

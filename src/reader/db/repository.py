@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from reader.db.connection import get_connection
 from reader.models.article import Article, ArticleCreate, ArticleScore, UserDecision
+from reader.models.elo import EloComparisonCreate, EloComparisonRecord
 from reader.models.scoring import (
     AppSettings,
     FiveWhats,
@@ -103,34 +104,58 @@ class ArticleRepository:
             ).fetchall()
             return [self._row_to_article(row) for row in rows]
 
-    # REQ-RC-008: Get articles for inbox display
+    # REQ-RC-008, REQ-RC-027: Get articles for inbox display
     def get_inbox(self, show_all: bool = False, limit: int = 50) -> list[Article]:
-        """Get articles for inbox, optionally filtered by median score."""
+        """Get articles for inbox, optionally filtered by Elo percentile.
+
+        REQ-RC-027: Use Elo percentiles to preserve p50+ filtering behavior.
+        """
         with get_connection() as conn:
             if show_all:
                 rows = conn.execute(
                     """
                     SELECT * FROM articles
                     WHERE user_decision = 'pending'
-                    ORDER BY llm_score DESC NULLS LAST, received_at DESC
+                    ORDER BY elo_rating DESC NULLS LAST, received_at DESC
                     LIMIT ?
                     """,
                     (limit,),
                 ).fetchall()
             else:
-                # REQ-RC-012: Filter to p50+ by default
-                rows = conn.execute(
+                # REQ-RC-012, REQ-RC-027: Filter to p50+ by Elo percentile
+                # Calculate median Elo and filter to above-median articles
+                median_elo = conn.execute(
                     """
-                    SELECT * FROM articles
-                    WHERE user_decision = 'pending'
-                      AND llm_score >= (
-                          SELECT AVG(llm_score) FROM articles WHERE llm_score IS NOT NULL
-                      )
-                    ORDER BY llm_score DESC, received_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                ).fetchall()
+                    SELECT elo_rating FROM articles
+                    WHERE elo_rating IS NOT NULL
+                    ORDER BY elo_rating
+                    LIMIT 1
+                    OFFSET (SELECT COUNT(*) FROM articles WHERE elo_rating IS NOT NULL) / 2
+                    """
+                ).fetchone()
+
+                if median_elo and median_elo[0] is not None:
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM articles
+                        WHERE user_decision = 'pending'
+                          AND elo_rating >= ?
+                        ORDER BY elo_rating DESC, received_at DESC
+                        LIMIT ?
+                        """,
+                        (median_elo[0], limit),
+                    ).fetchall()
+                else:
+                    # No Elo ratings yet, show all
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM articles
+                        WHERE user_decision = 'pending'
+                        ORDER BY received_at DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
             return [self._row_to_article(row) for row in rows]
 
     # REQ-RC-004: Get unscored articles
@@ -176,6 +201,51 @@ class ArticleRepository:
                 ),
             )
             conn.commit()
+
+    # REQ-RC-024, REQ-RC-025: Update Elo rating
+    def update_elo(
+        self, article_id: int, elo_rating: float, increment_comparisons: bool = True
+    ) -> None:
+        """Update an article's Elo rating and comparison count.
+
+        Args:
+            article_id: ID of article to update
+            elo_rating: New Elo rating
+            increment_comparisons: Whether to increment comparison counter
+        """
+        with get_connection() as conn:
+            if increment_comparisons:
+                conn.execute(
+                    """
+                    UPDATE articles SET
+                        elo_rating = ?,
+                        elo_comparisons = elo_comparisons + 1,
+                        elo_confidence = CASE
+                            WHEN elo_comparisons + 1 >= 7 THEN 1
+                            ELSE 0
+                        END,
+                        scored_at = ?
+                    WHERE id = ?
+                    """,
+                    (elo_rating, datetime.now(UTC).isoformat(), article_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE articles SET elo_rating = ?, scored_at = ? WHERE id = ?
+                    """,
+                    (elo_rating, datetime.now(UTC).isoformat(), article_id),
+                )
+            conn.commit()
+
+    # REQ-RC-027: Get all Elo ratings for percentile calculation
+    def get_all_elo_ratings(self) -> list[float]:
+        """Get all Elo ratings from scored articles."""
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT elo_rating FROM articles WHERE elo_rating IS NOT NULL"
+            ).fetchall()
+            return [row["elo_rating"] for row in rows]
 
     # REQ-RC-014: Update user decision
     def update_decision(self, article_id: int, decision: UserDecision) -> None:
@@ -357,6 +427,9 @@ class ArticleRepository:
             prompt_version=row["prompt_version"],
             generation_id=row["generation_id"],
             scored_at=datetime.fromisoformat(row["scored_at"]) if row["scored_at"] else None,
+            elo_rating=row["elo_rating"] if row["elo_rating"] is not None else 1500.0,
+            elo_comparisons=row["elo_comparisons"] or 0,
+            elo_confidence=bool(row["elo_confidence"]),
             user_decision=UserDecision(row["user_decision"]),
             decided_at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
             user_rating=row["user_rating"] or 0,
@@ -715,3 +788,84 @@ class AppSettingsRepository:
         REQ-RC-023: THE SYSTEM SHALL allow customization of application title
         """
         self.set("app_title", title)
+
+
+class EloComparisonRepository:
+    """Repository for Elo comparison CRUD operations.
+
+    REQ-RC-024: Compare Article Relevance via Pairwise Ranking
+    REQ-RC-028: Track Comparison History for Transparency
+    """
+
+    def create(self, comparison: EloComparisonCreate) -> int:
+        """Create a new Elo comparison record and return its ID."""
+        with get_connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO elo_comparisons (
+                    article_a_id, article_b_id, winner_id, llm_reasoning,
+                    article_a_elo_before, article_a_elo_after,
+                    article_b_elo_before, article_b_elo_after,
+                    k_factor, generation_id, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    comparison.article_a_id,
+                    comparison.article_b_id,
+                    comparison.winner_id,
+                    comparison.llm_reasoning,
+                    comparison.article_a_elo_before,
+                    comparison.article_a_elo_after,
+                    comparison.article_b_elo_before,
+                    comparison.article_b_elo_after,
+                    comparison.k_factor,
+                    comparison.generation_id,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+
+    def get_by_article(self, article_id: int) -> list[EloComparisonRecord]:
+        """Get all comparisons involving a specific article."""
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM elo_comparisons
+                WHERE article_a_id = ? OR article_b_id = ?
+                ORDER BY created_at DESC
+                """,
+                (article_id, article_id),
+            ).fetchall()
+            return [self._row_to_comparison(row) for row in rows]
+
+    def get_recent(self, limit: int = 50) -> list[EloComparisonRecord]:
+        """Get recent comparisons."""
+        with get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM elo_comparisons
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [self._row_to_comparison(row) for row in rows]
+
+    def _row_to_comparison(self, row: sqlite3.Row) -> EloComparisonRecord:
+        """Convert a database row to an EloComparisonRecord model."""
+        return EloComparisonRecord(
+            id=row["id"],
+            article_a_id=row["article_a_id"],
+            article_b_id=row["article_b_id"],
+            winner_id=row["winner_id"],
+            llm_reasoning=row["llm_reasoning"],
+            article_a_elo_before=row["article_a_elo_before"],
+            article_a_elo_after=row["article_a_elo_after"],
+            article_b_elo_before=row["article_b_elo_before"],
+            article_b_elo_after=row["article_b_elo_after"],
+            k_factor=row["k_factor"],
+            generation_id=row["generation_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )

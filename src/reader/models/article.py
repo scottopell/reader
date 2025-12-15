@@ -91,6 +91,13 @@ class Article(BaseModel):
     # REQ-RC-005, REQ-RC-008: Prompt generation tracking
     generation_id: int | None = None
 
+    # REQ-RC-024, REQ-RC-025: Elo-based pairwise comparison scoring
+    elo_rating: float = Field(default=1500.0, description="Elo rating from pairwise comparisons")
+    elo_comparisons: int = Field(default=0, description="Number of pairwise comparisons completed")
+    elo_confidence: bool = Field(
+        default=False, description="Whether article has stable Elo (7+ comparisons)"
+    )
+
     # User decisions (REQ-RC-014)
     user_decision: UserDecision = UserDecision.PENDING
     decided_at: datetime | None = None

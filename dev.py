@@ -26,7 +26,9 @@ Database Commands:
     db-reset    Reset database (warning: deletes data)
 
 Ingestion Commands:
-    ingest-rss  Ingest articles from all enabled RSS feeds
+    ingest-rss       Ingest articles from all enabled RSS feeds
+    load-feeds       Bulk load RSS feeds from file or arguments
+    score-existing   Score all existing unscored articles with Elo
 
 Maintenance Commands:
     clean       Stop server and remove all runtime state
@@ -57,6 +59,8 @@ LOG_FILE = DEV_DIR / "server.log"
 # REQ-DW-009: Internal environment configuration
 DEFAULT_ENV = {
     "READER_LLM_BACKEND": "ollama",
+    "READER_OLLAMA_MODEL": "gemma3n:latest",  # Use Gemma 3 (6.9B) for scoring
+    "READER_SCORING_DELAY_SECONDS": "2.0",  # Throttle scoring to prevent GPU overload
     "READER_DANGEROUS_NO_WEB_AUTH_MODE": "1",  # Dev server runs without auth
 }
 
@@ -563,8 +567,156 @@ def cmd_ingest_rss() -> int:
 
     REQ-RC-002: Discover New Content from RSS Feeds
     """
-    result = run(["uv", "run", "python", "-m", "reader.ingestion.rss"], check=False)
+    # Set up environment with dev defaults
+    env = os.environ.copy()
+    for key, value in DEFAULT_ENV.items():
+        if key not in env:
+            env[key] = value
+
+    print(f"\n→ uv run python -m reader.ingestion.rss")
+    result = subprocess.run(
+        ["uv", "run", "python", "-m", "reader.ingestion.rss"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False
+    )
     return result.returncode
+
+
+def cmd_score_existing() -> int:
+    """Score all existing unscored articles using Elo pairwise comparisons.
+
+    REQ-RC-024: Elo-based pairwise comparison scoring
+    """
+    # Set up environment with dev defaults
+    env = os.environ.copy()
+    for key, value in DEFAULT_ENV.items():
+        if key not in env:
+            env[key] = value
+
+    print(f"\n→ uv run python -c [scoring script]")
+    result = subprocess.run(
+        ["uv", "run", "python", "-c", """
+import asyncio
+import logging
+from reader.db.repository import ArticleRepository
+from reader.scoring.elo_scoring import score_article_with_elo
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+async def score_all():
+    repo = ArticleRepository()
+
+    # Get articles that need scoring (elo_comparisons = 0)
+    articles = repo.get_unscored(limit=10000)
+    # Filter to those with elo_comparisons = 0
+    from reader.db.connection import get_connection
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id FROM articles WHERE elo_comparisons = 0 AND extraction_status = 'success' ORDER BY received_at DESC"
+        ).fetchall()
+
+    article_ids = [row[0] for row in rows]
+    print(f"Found {len(article_ids)} articles to score")
+
+    for i, article_id in enumerate(article_ids, 1):
+        print(f"\\nScoring article {i}/{len(article_ids)} (ID: {article_id})")
+        try:
+            comparisons, errors = await score_article_with_elo(article_id)
+            if errors:
+                print(f"  Completed with {len(errors)} errors")
+        except Exception as e:
+            print(f"  Failed: {e}")
+
+    print(f"\\nScoring complete!")
+
+asyncio.run(score_all())
+"""],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=False
+    )
+    return result.returncode
+
+
+def cmd_load_feeds(file_path: str | None = None, urls: list[str] | None = None) -> int:
+    """Bulk load RSS feeds from file or command line arguments.
+
+    REQ-RC-015: Manage Content Sources
+
+    Usage:
+        ./dev.py load-feeds --file feeds.txt
+        ./dev.py load-feeds <url1> <url2> ...
+    """
+    # Import here to avoid circular deps
+    try:
+        result = subprocess.run(
+            ["uv", "run", "python", "-c",
+             f"""
+import sys
+from reader.db.repository import FeedSourceRepository
+from reader.models.source import FeedSourceCreate, SourceType
+
+feeds_to_load = []
+
+# Read from file if provided
+if {repr(file_path)}:
+    with open({repr(file_path)}, 'r') as f:
+        for line in f:
+            line = line.strip()
+            # Skip empty lines and comments
+            if line and not line.startswith('#'):
+                # Support "URL name" format or just "URL"
+                parts = line.split(maxsplit=1)
+                url = parts[0]
+                name = parts[1] if len(parts) > 1 else None
+                feeds_to_load.append((url, name))
+# Otherwise use provided URLs
+elif {repr(urls)}:
+    for url in {repr(urls)}:
+        feeds_to_load.append((url, None))
+
+if not feeds_to_load:
+    print("No feeds to load")
+    sys.exit(1)
+
+repo = FeedSourceRepository()
+loaded = 0
+skipped = 0
+
+for url, name in feeds_to_load:
+    # Check if already exists
+    existing = [s for s in repo.get_all() if s.identifier == url]
+    if existing:
+        print(f"Skipping (already exists): {{url}}")
+        skipped += 1
+        continue
+
+    # Create feed source
+    source = FeedSourceCreate(
+        type=SourceType.RSS,
+        identifier=url,
+        display_name=name,
+        enabled=True,
+        check_interval_hours=6
+    )
+    source_id = repo.create(source)
+    print(f"Added feed {{source_id}}: {{url}}" + (f" ({{name}})" if name else ""))
+    loaded += 1
+
+print(f"\\nLoaded {{loaded}} feeds, skipped {{skipped}} duplicates")
+sys.exit(0)
+"""],
+            cwd=PROJECT_ROOT,
+            check=False
+        )
+        return result.returncode
+    except Exception as e:
+        print(f"Error loading feeds: {e}")
+        return 1
 
 
 # =============================================================================
@@ -683,6 +835,23 @@ def main() -> int:
         # Ingestion commands
         case "ingest-rss":
             return cmd_ingest_rss()
+        case "score-existing":
+            return cmd_score_existing()
+        case "load-feeds":
+            # Parse arguments
+            file_path = None
+            urls = []
+            i = 0
+            while i < len(args):
+                if args[i] in ("--file", "-f") and i + 1 < len(args):
+                    file_path = args[i + 1]
+                    i += 2
+                elif not args[i].startswith("-"):
+                    urls.append(args[i])
+                    i += 1
+                else:
+                    i += 1
+            return cmd_load_feeds(file_path=file_path, urls=urls if urls else None)
 
         # Maintenance commands
         case "clean":

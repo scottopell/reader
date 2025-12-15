@@ -66,6 +66,8 @@ Shortcuts share sheet.
 
 ### REQ-RC-004: Understand Relevance of Each Article
 
+**DEPRECATED:** Replaced by REQ-RC-024 through REQ-RC-028 (Elo-based pairwise comparison)
+
 WHEN new article content is extracted
 THE SYSTEM SHALL score relevance 1-10 using Claude API
 
@@ -75,6 +77,10 @@ THE SYSTEM SHALL estimate reading time category (quick/medium/deep)
 
 **Rationale:** Users want automated filtering based on their interests, reducing
 daily curation from ~20min to <5min.
+
+**Deprecation Reason:** Absolute 1-10 scoring produces clustered scores around
+6-8 with poor discrimination. Pairwise Elo comparisons provide better relative
+ranking.
 
 ---
 
@@ -361,5 +367,85 @@ THE SYSTEM SHALL display configured title in UI header and page titles
 
 **Rationale:** Users want to personalize their reading interface, making the
 application feel like their own curation tool.
+
+---
+
+### REQ-RC-024: Compare Article Relevance via Pairwise Ranking
+
+WHEN new article content is extracted
+THE SYSTEM SHALL perform pairwise comparisons with existing scored articles
+
+WHEN comparing two articles
+THE SYSTEM SHALL present both to Claude asking which is more relevant to user interests
+
+THE SYSTEM SHALL update Elo ratings for both articles based on comparison outcome
+
+**Rationale:** Users want better discrimination between articles. Pairwise
+comparisons force the LLM to make relative judgments, avoiding score clustering
+around 6-8 that occurs with absolute 1-10 ratings.
+
+---
+
+### REQ-RC-025: Initialize Elo Scores for New Articles
+
+WHEN new article enters the system
+THE SYSTEM SHALL assign initial Elo rating of 1500
+
+WHEN article completes initial comparison rounds
+THE SYSTEM SHALL mark article as having stable Elo confidence
+
+**Rationale:** Users want new articles to start at a neutral baseline rating,
+allowing the comparison system to quickly establish their true relevance through
+pairwise contests.
+
+---
+
+### REQ-RC-026: Select Comparison Opponents Strategically
+
+WHEN selecting opponents for new article
+THE SYSTEM SHALL choose 7 random articles from scored articles
+
+WHEN fewer than 7 scored articles exist
+THE SYSTEM SHALL compare against all available scored articles
+
+THE SYSTEM SHALL prefer articles from the current prompt generation as opponents
+
+**Rationale:** Users want efficient convergence to accurate ratings. Seven
+comparisons provide statistical confidence while limiting API costs. Recent
+articles better represent current interests.
+
+---
+
+### REQ-RC-027: Display Normalized Elo Scores to Users
+
+WHEN displaying article scores in UI
+THE SYSTEM SHALL map Elo ratings to percentile ranks
+
+WHEN user filters by "above median"
+THE SYSTEM SHALL show articles with percentile >= 50
+
+THE SYSTEM SHALL display percentile rank alongside raw Elo rating
+
+**Rationale:** Users understand percentiles intuitively. Raw Elo values (e.g.,
+1450-1650) are meaningless without context. Percentile mapping preserves
+existing "p50+" filtering behavior.
+
+---
+
+### REQ-RC-028: Track Comparison History for Transparency
+
+WHEN pairwise comparison completes
+THE SYSTEM SHALL record which articles were compared
+
+THE SYSTEM SHALL record comparison outcome and LLM reasoning
+
+THE SYSTEM SHALL record Elo rating changes for both articles
+
+WHEN user views article details
+THE SYSTEM SHALL show comparison history and confidence level
+
+**Rationale:** Users want to understand why articles received their ratings.
+Comparison history provides transparency into the ranking process and builds
+trust in the system.
 
 ---
