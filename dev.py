@@ -573,12 +573,12 @@ def cmd_ingest_rss() -> int:
         if key not in env:
             env[key] = value
 
-    print(f"\n→ uv run python -m reader.ingestion.rss")
+    print("\n→ uv run python -m reader.ingestion.rss")
     result = subprocess.run(
         ["uv", "run", "python", "-m", "reader.ingestion.rss"],
         cwd=PROJECT_ROOT,
         env=env,
-        check=False
+        check=False,
     )
     return result.returncode
 
@@ -594,9 +594,14 @@ def cmd_score_existing() -> int:
         if key not in env:
             env[key] = value
 
-    print(f"\n→ uv run python -c [scoring script]")
+    print("\n→ uv run python -c [scoring script]")
     result = subprocess.run(
-        ["uv", "run", "python", "-c", """
+        [
+            "uv",
+            "run",
+            "python",
+            "-c",
+            """
 import asyncio
 import logging
 from reader.db.repository import ArticleRepository
@@ -634,10 +639,11 @@ async def score_all():
     print(f"\\nScoring complete!")
 
 asyncio.run(score_all())
-"""],
+""",
+        ],
         cwd=PROJECT_ROOT,
         env=env,
-        check=False
+        check=False,
     )
     return result.returncode
 
@@ -654,8 +660,12 @@ def cmd_load_feeds(file_path: str | None = None, urls: list[str] | None = None) 
     # Import here to avoid circular deps
     try:
         result = subprocess.run(
-            ["uv", "run", "python", "-c",
-             f"""
+            [
+                "uv",
+                "run",
+                "python",
+                "-c",
+                f"""
 import sys
 from reader.db.repository import FeedSourceRepository
 from reader.models.source import FeedSourceCreate, SourceType
@@ -663,8 +673,8 @@ from reader.models.source import FeedSourceCreate, SourceType
 feeds_to_load = []
 
 # Read from file if provided
-if {repr(file_path)}:
-    with open({repr(file_path)}, 'r') as f:
+if {file_path!r}:
+    with open({file_path!r}, 'r') as f:
         for line in f:
             line = line.strip()
             # Skip empty lines and comments
@@ -675,8 +685,8 @@ if {repr(file_path)}:
                 name = parts[1] if len(parts) > 1 else None
                 feeds_to_load.append((url, name))
 # Otherwise use provided URLs
-elif {repr(urls)}:
-    for url in {repr(urls)}:
+elif {urls!r}:
+    for url in {urls!r}:
         feeds_to_load.append((url, None))
 
 if not feeds_to_load:
@@ -709,9 +719,10 @@ for url, name in feeds_to_load:
 
 print(f"\\nLoaded {{loaded}} feeds, skipped {{skipped}} duplicates")
 sys.exit(0)
-"""],
+""",
+            ],
             cwd=PROJECT_ROOT,
-            check=False
+            check=False,
         )
         return result.returncode
     except Exception as e:

@@ -10,20 +10,21 @@ blogs without email options), and manual URL submission via iOS Shortcuts share
 sheet. Each article is automatically scored via Elo-based pairwise comparisons
 (replacing deprecated 1-10 absolute scoring) where Claude compares each new
 article against 7 existing articles to establish relative relevance ranking,
-reducing daily curation time from 20 minutes to under 5 minutes. Users
-browse a score-sorted inbox showing only high-value articles by default, focused
-on the current prompt generation with previous 5 generations visible but muted.
-Users rate articles with thumbs up/down and optionally provide structured
-feedback through the heuristic-refiner system, which characterizes articles via
-5-Whats analysis (topic, style, depth, emotion, level) and collects user input.
-At UTC midnight daily, all feedback from the past 24 hours is batched and sent
-to a refinement LLM that evolves the scoring prompt, creating a new generation.
-Users can review prompt evolution history with inline word-diffs and trace each
-generation to the feedback that produced it. The system provides generation-aware
-statistics showing how rating patterns improve over time. In-app reading,
-full-text search across archives, and customizable application branding support
-personalization. Security defaults to HTTP Basic Auth with randomly generated
-credentials, with explicit opt-out required for unauthenticated access.
+reducing daily curation time from 20 minutes to under 5 minutes. Users browse a
+score-sorted inbox showing only high-value articles by default, focused on the
+current prompt generation with previous 5 generations visible but muted. Users
+rate articles with thumbs up/down and optionally provide structured feedback
+through the heuristic-refiner system, which characterizes articles via 5-Whats
+analysis (topic, style, depth, emotion, level) and collects user input. At UTC
+midnight daily, all feedback from the past 24 hours is batched and sent to a
+refinement LLM that evolves the scoring prompt, creating a new generation. Users
+can review prompt evolution history with inline word-diffs and trace each
+generation to the feedback that produced it. The system provides
+generation-aware statistics showing how rating patterns improve over time.
+In-app reading, full-text search across archives, and customizable application
+branding support personalization. Security defaults to HTTP Basic Auth with
+randomly generated credentials, with explicit opt-out required for
+unauthenticated access.
 
 ## Technical Summary
 
@@ -37,21 +38,22 @@ opponents from the current prompt generation, asking Claude "which is more
 relevant?" for each pair and updating both articles' Elo ratings using standard
 chess-style formulas (K-factor 32, initial rating 1500). After 7 comparisons,
 articles are marked as having stable confidence. SQLite stores articles with Elo
-ratings, comparison history, prompt generations, and heuristic feedback. Heuristic-refiner
-system collects thumbs up/down ratings with optional structured feedback via
-5-Whats characterization (LLM-generated: topic, style, depth, emotion, level).
-Daily batch job at UTC midnight collects past 24 hours of feedback, calls
-refinement LLM to evolve scoring prompt, creates new generation with word-diff
-from previous, and links feedback to generation. Frontend displays generation-aware inbox (current generation prominent, previous
+ratings, comparison history, prompt generations, and heuristic feedback.
+Heuristic-refiner system collects thumbs up/down ratings with optional
+structured feedback via 5-Whats characterization (LLM-generated: topic, style,
+depth, emotion, level). Daily batch job at UTC midnight collects past 24 hours
+of feedback, calls refinement LLM to evolve scoring prompt, creates new
+generation with word-diff from previous, and links feedback to generation.
+Frontend displays generation-aware inbox (current generation prominent, previous
 5 muted, older hidden) with Elo ratings mapped to percentile ranks for intuitive
-interpretation (e.g., "1523 Elo, 73rd percentile"). Comparison history accessible
-per article showing pairwise contests and outcomes. All view provides faceted
-filtering by generation and rating, dual sort by Elo percentile or user rating.
-Prompt history page shows evolution with inline word-diffs and feedback
+interpretation (e.g., "1523 Elo, 73rd percentile"). Comparison history
+accessible per article showing pairwise contests and outcomes. All view provides
+faceted filtering by generation and rating, dual sort by Elo percentile or user
+rating. Prompt history page shows evolution with inline word-diffs and feedback
 traceability. Statistics dashboard tracks generation-over-generation improvement
 via thumbs-up percentages in high-scored versus low-scored articles, with Elo
-distribution histograms. Bundle generation creates individual
-text files per article. App settings table stores customizable application title.
+distribution histograms. Bundle generation creates individual text files per
+article. App settings table stores customizable application title.
 Authentication uses HTTP Basic Auth by default with random credential generation
 logged at startup, plus optional API key for programmatic access via environment
 variable, with explicit dangerous mode flag required to disable security.
@@ -87,10 +89,11 @@ operations via httpx. Source code follows src/ layout pattern.
 | **REQ-RC-021:** Refine Prompts from Daily Feedback | ✅ Complete | batch.py with refinement LLM, diff computation; run_daily_refinement(); schedule placeholder |
 | **REQ-RC-022:** Display Prompt Evolution History | ✅ Complete | /prompt-history route; prompt_history.html with inline word-diff; generation detail page |
 | **REQ-RC-023:** Customize Application Appearance | ✅ Complete | app_settings table; AppSettingsRepository; app_title in templates |
-| **REQ-RC-024:** Compare Article Relevance via Pairwise Ranking | ❌ Not Started | Replaces REQ-RC-004; requires elo.py implementation |
-| **REQ-RC-025:** Initialize Elo Scores for New Articles | ❌ Not Started | Default Elo 1500; confidence after 7 comparisons |
-| **REQ-RC-026:** Select Comparison Opponents Strategically | ❌ Not Started | 7 random opponents from current generation |
-| **REQ-RC-027:** Display Normalized Elo Scores to Users | ❌ Not Started | Percentile mapping for user-facing display |
-| **REQ-RC-028:** Track Comparison History for Transparency | ❌ Not Started | elo_comparisons table with outcome tracking |
+| **REQ-RC-024:** Compare Article Relevance via Pairwise Ranking | ✅ Complete | elo.py implements pairwise comparisons with Claude API |
+| **REQ-RC-025:** Initialize Elo Scores for New Articles | ✅ Complete | Articles default to 1500; stable rating after 7 comparisons (checked via elo_comparisons >= 7) |
+| **REQ-RC-026:** Select Comparison Opponents Strategically | ✅ Complete | Selects 7 random opponents from current generation |
+| **REQ-RC-027:** Display Normalized Elo Scores to Users | ✅ Complete | Percentile badges (p0-p100) with color coding in inbox; /inbox/articles JSON endpoint; Load More pagination |
+| **REQ-RC-028:** Track Comparison History for Transparency | ✅ Complete | elo_comparisons table stores all pairwise contests with outcomes and Elo deltas |
 
-**Progress:** 22 complete, 0 in progress, 5 not started, 1 stub (REQ-RC-001 email)
+**Progress:** 27 complete, 0 in progress, 0 not started, 1 stub (REQ-RC-001
+email)

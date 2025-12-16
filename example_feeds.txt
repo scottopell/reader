@@ -1,0 +1,51 @@
+# Example RSS Feeds for Reader
+# Format: URL [optional display name]
+# Lines starting with # are comments and will be ignored
+
+# === Technology News ===
+https://techcrunch.com/feed/ TechCrunch
+https://www.theverge.com/rss/index.xml The Verge
+https://feeds.arstechnica.com/arstechnica/index Ars Technica
+https://www.wired.com/feed/rss Wired
+https://www.zdnet.com/news/rss.xml ZDNet
+https://www.cnet.com/rss/news/ CNET
+https://www.engadget.com/rss.xml Engadget
+https://www.ghacks.net/feed/ Ghacks Technology News
+https://www.theregister.com/headlines.atom The Register
+https://www.extremetech.com/feed ExtremeTech
+
+# === Science & Research ===
+https://www.science.org/rss/news_current.xml Science News (AAAS)
+https://www.sciencedaily.com/rss/all.xml ScienceDaily
+https://rss.sciam.com/ScientificAmerican.xml Scientific American
+https://www.newscientist.com/feed/home New Scientist
+https://www.nature.com/nature.rss Nature
+https://www.sciencenews.org/feed Science News
+
+# === Personal Development & Productivity ===
+https://zenhabits.net/feed/ Zen Habits
+https://jamesclear.com/feed James Clear
+https://www.scotthyoung.com/blog/feed/ Scott H Young
+https://www.lifehack.org/feed Lifehack
+https://feeds.feedburner.com/tinybuddha Tiny Buddha
+https://dariusforoux.com/feed/ Darius Foroux
+https://www.stevepavlina.com/blog/feed Steve Pavlina
+https://www.positivityblog.com/feed/ Positivity Blog
+https://feeds.feedburner.com/MarcAndAngel Marc and Angel
+
+# === Hacker News & Dev Culture ===
+https://hnrss.org/frontpage Hacker News Front Page
+https://news.ycombinator.com/rss Hacker News RSS
+
+# === Longform & Essays ===
+https://longform.org/feed Longform
+https://aeon.co/feed.rss Aeon
+
+# === General News (Quality Sources) ===
+https://feeds.bbci.co.uk/news/rss.xml BBC News
+https://www.theguardian.com/world/rss The Guardian World
+https://www.npr.org/rss/rss.php?id=1001 NPR News
+https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml New York Times
+
+# Add your own feeds below:
+

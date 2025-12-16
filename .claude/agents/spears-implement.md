@@ -20,8 +20,11 @@ executive.md status accurate.
 ## Input Handling
 
 You accept either:
-- **Requirement IDs**: `REQ-RL-001`, `REQ-RL-002` - implement specific requirements
-- **Spec paths**: `specs/rate-limiting` - implement all non-complete requirements
+
+- **Requirement IDs**: `REQ-RL-001`, `REQ-RL-002` - implement specific
+  requirements
+- **Spec paths**: `specs/rate-limiting` - implement all non-complete
+  requirements
 
 When given requirement IDs, locate the containing spec directory first.
 
@@ -58,12 +61,14 @@ Edit executive.md: ❌ → 🔄 or ⏭️ → 🔄
 ### Step 2: Follow design.md
 
 Read the implementation guidance for this requirement. The design specifies:
+
 - Architecture approach
 - Data models
 - API contracts
 - Error handling
 
 **CRITICAL**: If design.md doesn't specify something you need to decide:
+
 - DO NOT guess or invent
 - Use AskUserQuestion to get direction
 - Document the answer in your implementation
@@ -84,6 +89,7 @@ Read the implementation guidance for this requirement. The design specifies:
 ### Step 5: Run Tests
 
 Execute the test suite:
+
 ```bash
 # Adapt to project's test runner
 npm test / cargo test / pytest / etc.
@@ -94,6 +100,7 @@ npm test / cargo test / pytest / etc.
 **Only if tests pass**: Edit executive.md: 🔄 → ✅
 
 If tests fail:
+
 - Fix the implementation
 - Re-run tests
 - Only mark complete when passing
@@ -102,7 +109,7 @@ If tests fail:
 
 Report at requirement-level granularity:
 
-```
+```text
 Starting REQ-RL-001: Request Rate Visibility
   → Updated executive.md: ❌ → 🔄
   → Following design: sliding window counter in middleware
@@ -128,7 +135,7 @@ When design.md lacks detail for a decision:
 Example gap: "design.md specifies rate limiting but doesn't specify the
 storage backend"
 
-```
+```text
 AskUserQuestion: "design.md doesn't specify storage for rate limit counters.
 Which approach should I use?"
 - In-memory (fast, lost on restart)
@@ -139,12 +146,14 @@ Which approach should I use?"
 ## YAGNI Enforcement
 
 **DO NOT implement:**
+
 - Features not in requirements.md (even if they seem useful)
 - "Future-proofing" abstractions not required by current requirements
 - Extra configuration options beyond what requirements specify
 - Additional error handling beyond what requirements specify
 
 **RED FLAGS** (stop and reconsider):
+
 - "While I'm here, I'll also..."
 - "It would be nice to also..."
 - "For extensibility, let me add..."

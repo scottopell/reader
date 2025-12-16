@@ -5,9 +5,7 @@ REQ-RC-025: Initialize Elo Scores for New Articles
 REQ-RC-026: Select Comparison Opponents Strategically
 """
 
-import asyncio
 import logging
-import random
 
 from reader.db.repository import ArticleRepository, EloComparisonRepository
 from reader.models.article import Article
@@ -41,12 +39,6 @@ def select_opponents(
     Returns:
         List of opponent articles (may be fewer than count if not enough articles)
     """
-    # Get all scored articles (with Elo ratings) except the new one
-    all_scored = article_repo.get_unscored(limit=1000)  # Reuse query, will filter below
-
-    # Actually we need a better query - let me get all articles with elo_rating
-    # For now, let's use a simple approach
-    article_repo_conn = article_repo
     from reader.db.connection import get_connection
 
     with get_connection() as conn:
@@ -152,9 +144,7 @@ async def score_article_with_elo(article_id: int) -> tuple[int, list[str]]:
                 article_b_id=opponent.id,
                 article_a_title=article.title,
                 article_b_title=opponent.title,
-                article_a_preview=article.content_markdown[
-                    :500
-                ],  # First 500 chars as preview
+                article_a_preview=article.content_markdown[:500],  # First 500 chars as preview
                 article_b_preview=opponent.content_markdown[:500],
             )
 

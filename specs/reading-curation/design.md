@@ -54,8 +54,7 @@ CREATE TABLE articles (
   -- REQ-RC-004 (DEPRECATED), REQ-RC-024, REQ-RC-025: Elo-based scoring
   llm_score REAL,                    -- DEPRECATED: 1-10 relevance score (kept for migration)
   elo_rating REAL DEFAULT 1500,      -- REQ-RC-025: Elo rating (unbounded, default 1500)
-  elo_comparisons INTEGER DEFAULT 0, -- REQ-RC-028: Number of comparisons completed
-  elo_confidence BOOLEAN DEFAULT 0,  -- REQ-RC-025: TRUE when >= 7 comparisons done
+  elo_comparisons INTEGER DEFAULT 0, -- REQ-RC-025, REQ-RC-028: Number of comparisons (>= 7 = stable rating)
   llm_reasoning TEXT,                -- Brief explanation (from comparisons)
   reading_time_category TEXT,        -- 'quick', 'medium', 'deep'
   word_count INTEGER,
@@ -199,17 +198,52 @@ CREATE TABLE auth_config (
 
 #### GET /inbox
 
-**REQ-RC-008, REQ-RC-012**
+**REQ-RC-008, REQ-RC-012, REQ-RC-027**
 
-Returns paginated article list sorted by score.
+Returns article list sorted by Elo rating, with initial page load showing first
+50 articles.
 
 Query params:
 
-- `show_all=1` - Include all articles regardless of score
-- `page=N` - Pagination (default: 1)
+- `show_all=1` - Include all articles regardless of score (default: p50+)
+- `limit=N` - Number of articles to load (default: 50)
 
-Response: HTML page with article cards showing title, source, score, reading
-time, LLM reasoning.
+Response: HTML page with article cards showing title, source, Elo percentile
+badge, reading time, generation badge, and thumbs rating indicator. Load More
+button fetches additional articles via `/inbox/articles` endpoint.
+
+#### GET /inbox/articles
+
+**REQ-RC-027**
+
+JSON endpoint for paginated article loading (Load More functionality).
+
+Query params:
+
+- `offset=N` - Number of articles to skip (default: 0)
+- `limit=N` - Number of articles to return (default: 50)
+- `show_all=1` - Include all articles (default: p50+)
+
+Response: JSON with article list, `has_more` flag, and `next_offset`:
+
+```json
+{
+  "articles": [
+    {
+      "id": 123,
+      "title": "Article Title",
+      "source": "rss:example.com",
+      "elo_rating": 1523.4,
+      "percentile": 73,
+      "reading_time_category": "medium",
+      "user_rating": 1,
+      "generation_id": 5
+    }
+  ],
+  "has_more": true,
+  "next_offset": 50
+}
+```
 
 #### GET /article/:id
 
@@ -497,7 +531,8 @@ def should_check_source(source) -> bool:
 
 ### LLM Scoring Flow (REQ-RC-004 DEPRECATED, REQ-RC-005)
 
-**DEPRECATED:** This absolute 1-10 scoring is replaced by REQ-RC-024 Elo-based pairwise comparisons.
+**DEPRECATED:** This absolute 1-10 scoring is replaced by REQ-RC-024 Elo-based
+pairwise comparisons.
 
 ```python
 async def score_unscored_articles():
@@ -623,9 +658,8 @@ async def score_new_article_via_elo(article_id: int):
         # Respect scoring delay between comparisons
         await asyncio.sleep(settings.scoring_delay_seconds)
 
-    # REQ-RC-025: Mark as confident after 7 comparisons
-    if article.elo_comparisons >= 7:
-        await article_repo.update_elo_confidence(article.id, confident=True)
+    # REQ-RC-025: After 7 comparisons, article has stable Elo rating
+    # Confidence is determined by checking elo_comparisons >= 7 when needed
 
 
 async def select_comparison_opponents(
@@ -636,11 +670,11 @@ async def select_comparison_opponents(
     REQ-RC-026: Select opponents for comparison.
     Prefer articles from current generation, fall back to any scored articles.
     """
-    # First try: articles from current generation with Elo confidence
+    # First try: articles from current generation with stable ratings (>= 7 comparisons)
     candidates = await article_repo.query("""
         SELECT * FROM articles
         WHERE generation_id = ?
-        AND elo_confidence = 1
+        AND elo_comparisons >= 7
         ORDER BY RANDOM()
         LIMIT ?
     """, generation_id, count)
@@ -778,7 +812,7 @@ async def get_elo_percentile(elo_rating: float) -> float:
             COUNT(*) FILTER (WHERE elo_rating < ?) as below,
             COUNT(*) as total
         FROM articles
-        WHERE elo_confidence = 1
+        WHERE elo_comparisons >= 7
     """, elo_rating)
 
     if result.total == 0:
@@ -797,17 +831,17 @@ async def get_articles_above_median() -> list[Article]:
     median_elo = await db.query_one("""
         SELECT elo_rating
         FROM articles
-        WHERE elo_confidence = 1
+        WHERE elo_comparisons >= 7
         ORDER BY elo_rating
         LIMIT 1
-        OFFSET (SELECT COUNT(*) FROM articles WHERE elo_confidence = 1) / 2
+        OFFSET (SELECT COUNT(*) FROM articles WHERE elo_comparisons >= 7) / 2
     """)
 
     # Fetch articles above median
     articles = await db.query("""
         SELECT *, elo_rating
         FROM articles
-        WHERE elo_confidence = 1
+        WHERE elo_comparisons >= 7
         AND elo_rating >= ?
         ORDER BY elo_rating DESC
     """, median_elo.elo_rating)
@@ -827,7 +861,6 @@ class ArticleWithPercentile(BaseModel):
     elo_rating: float          # Raw Elo (e.g., 1523.4)
     percentile: float          # User-facing rank (e.g., 73.2)
     elo_comparisons: int       # Number of comparisons (confidence indicator)
-    elo_confidence: bool       # Whether >= 7 comparisons done
 ```
 
 ### Bundle Generation Flow (REQ-RC-007, REQ-RC-009)
@@ -883,14 +916,17 @@ Reading Time: {article.reading_time_category}
 
 **REQ-RC-005, REQ-RC-021, REQ-RC-022**
 
-Prompt "generations" replace the concept of manually-managed "versions." Each generation represents an evolution produced by the refinement LLM based on user feedback. Generations are:
+Prompt "generations" replace the concept of manually-managed "versions." Each
+generation represents an evolution produced by the refinement LLM based on user
+feedback. Generations are:
 
 - **Immutable**: Once created, never modified
 - **Sequential**: Auto-incrementing ID (1, 2, 3...)
 - **Self-describing**: Include diff from previous generation
 - **Traceable**: Link to feedback items that produced them
 
-Old articles retain their generation_id to preserve historical context. New articles are always scored with the current active generation.
+Old articles retain their generation_id to preserve historical context. New
+articles are always scored with the current active generation.
 
 ### Feedback Collection Flow
 
@@ -1138,6 +1174,27 @@ async def prompt_history():
    - Header: `<h1>{{ app_settings.app_title }}</h1>`
    - Page titles: `<title>{{ app_settings.app_title }} - Inbox</title>`
 
+9. **Elo percentile badges** (REQ-RC-027)
+   - Display format: "p73" for 73rd percentile
+   - Color coding for quick visual scanning:
+     - Green (`#28a745`): p90+ (top 10%)
+     - Teal (`#20c997`): p75-89 (top 25%)
+     - Gray (`#6c757d`): p25-74 (middle 50%)
+     - Red (`#dc3545`): <p25 (bottom 25%)
+   - Tooltip shows raw Elo rating on hover
+   - Percentile calculated by counting articles with lower Elo ratings
+
+10. **Load More pagination** (REQ-RC-027)
+    - Initial page load: 50 articles
+    - "Load More" button at bottom of article list
+    - JavaScript fetches `/inbox/articles?offset=N&limit=50` endpoint
+    - Articles appended to DOM without page refresh
+    - Button states:
+      - Default: "Load More"
+      - Loading: "Loading..." (disabled)
+      - Exhausted: "No more articles" (disabled)
+      - Error: "Error - Try Again" (enabled for retry)
+
 ### User Journeys
 
 **Journey 1: Negative feedback on poorly-scored-high article**
@@ -1274,7 +1331,8 @@ async def prompt_history():
 
 ### Heuristic-Refiner Errors
 
-- **Characterization LLM timeout**: Allow feedback submission without characterization
+- **Characterization LLM timeout**: Allow feedback submission without
+  characterization
 - **Refinement LLM timeout**: Skip generation, retry next batch
 - **Invalid refined prompt**: Log error, keep current generation active
 - **Database constraint violation**: Roll back transaction, log error
@@ -1520,13 +1578,15 @@ async def prompt_history():
   - `anthropic` (Claude API for pairwise comparisons)
   - Standard library `math` for Elo calculations
 - **Database**:
-  - Articles table: `elo_rating`, `elo_comparisons`, `elo_confidence` columns
+  - Articles table: `elo_rating`, `elo_comparisons` columns
   - `elo_comparisons` table for history tracking
 - **Repository**: `src/reader/db/elo_repository.py`
-- **Data models**: `src/reader/models/scoring.py` (ComparisonResult, ArticleWithPercentile)
+- **Data models**: `src/reader/models/scoring.py` (ComparisonResult,
+  ArticleWithPercentile)
 - **Configuration**:
   - `ELO_K_FACTOR` (default: 32, controls rating volatility)
-  - `ELO_COMPARISONS_FOR_CONFIDENCE` (default: 7, minimum comparisons for stable rating)
+  - `ELO_COMPARISONS_FOR_CONFIDENCE` (default: 7, minimum comparisons for stable
+    rating)
   - `ELO_OPPONENT_COUNT` (default: 7, comparisons per new article)
 - **Migration strategy**:
   - Add new columns to articles table with defaults
@@ -1535,8 +1595,9 @@ async def prompt_history():
     - Score 1-3: Elo 1200-1350
     - Score 4-6: Elo 1400-1550
     - Score 7-10: Elo 1600-1800
-  - Mark bootstrapped articles as `elo_confidence = 0` to trigger re-comparison
-  - Option 2: Leave existing articles with old scores, only apply Elo to new articles
+  - Mark bootstrapped articles as `elo_comparisons = 0` to trigger re-comparison
+  - Option 2: Leave existing articles with old scores, only apply Elo to new
+    articles
 - **UI updates**:
   - Article cards show: "Elo: 1523 (73rd percentile)" with confidence indicator
   - Comparison history link in article detail view

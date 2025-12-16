@@ -66,7 +66,8 @@ Shortcuts share sheet.
 
 ### REQ-RC-004: Understand Relevance of Each Article
 
-**DEPRECATED:** Replaced by REQ-RC-024 through REQ-RC-028 (Elo-based pairwise comparison)
+**DEPRECATED:** Replaced by REQ-RC-024 through REQ-RC-028 (Elo-based pairwise
+comparison)
 
 WHEN new article content is extracted
 THE SYSTEM SHALL score relevance 1-10 using Claude API
@@ -127,19 +128,20 @@ separate files for easy navigation.
 
 ### REQ-RC-008: Browse Articles by Relevance Score
 
-WHEN user accesses the inbox
-THE SYSTEM SHALL display articles from the current prompt generation sorted by score (highest first)
+WHEN user accesses the inbox THE SYSTEM SHALL display articles from the current
+prompt generation sorted by score (highest first)
 
 THE SYSTEM SHALL show for each article: title, source, score, reading time
 estimate, and LLM reasoning
 
-THE SYSTEM SHALL display articles from the previous 5 prompt generations with muted visual treatment
+THE SYSTEM SHALL display articles from the previous 5 prompt generations with
+muted visual treatment
 
 THE SYSTEM SHALL hide articles from prompt generations older than the previous 5
 
 **Rationale:** Users want to quickly scan and cherry-pick interesting articles
-with AI reasoning visible, focused on articles scored with the current prompt while
-preserving recent history without infinite clutter.
+with AI reasoning visible, focused on articles scored with the current prompt
+while preserving recent history without infinite clutter.
 
 ---
 
@@ -185,8 +187,8 @@ reference, with the best matches appearing first.
 
 THE SYSTEM SHALL by default show only articles scoring above the median (p50+)
 
-WHEN user clicks "Show All"
-THE SYSTEM SHALL display all articles with faceted filtering by prompt generation and rating
+WHEN user clicks "Show All" THE SYSTEM SHALL display all articles with faceted
+filtering by prompt generation and rating
 
 THE SYSTEM SHALL provide dual sort options: LLM score and user rating
 
@@ -199,8 +201,8 @@ flexible views for retroactive refinement and historical analysis.
 
 ### REQ-RC-013: Monitor Scoring Accuracy
 
-WHEN user accesses the stats page
-THE SYSTEM SHALL display percentage of thumbs-up ratings in high-scored versus low-scored articles per generation
+WHEN user accesses the stats page THE SYSTEM SHALL display percentage of
+thumbs-up ratings in high-scored versus low-scored articles per generation
 
 THE SYSTEM SHALL display generation-over-generation improvement trends
 
@@ -219,10 +221,12 @@ THE SYSTEM SHALL store the rating alongside the LLM score
 WHEN user provides rating and enters heuristic-refiner mode
 THE SYSTEM SHALL flag the article as having contributed refinement feedback
 
-THE SYSTEM SHALL link the article to the prompt generation record if feedback produced a refinement
+THE SYSTEM SHALL link the article to the prompt generation record if feedback
+produced a refinement
 
-**Rationale:** Users want to directly influence scoring improvements through simple
-thumbs up/down signals without requiring developer access to prompt editing.
+**Rationale:** Users want to directly influence scoring improvements through
+simple thumbs up/down signals without requiring developer access to prompt
+editing.
 
 ---
 
@@ -290,7 +294,8 @@ transfer.
 WHEN user enters heuristic-refiner mode for an article
 THE SYSTEM SHALL issue an LLM call to characterize the article
 
-THE SYSTEM SHALL return a 5-Whats scorecard containing: topic, writing style, depth, emotional impact, and writing level
+THE SYSTEM SHALL return a 5-Whats scorecard containing: topic, writing style,
+depth, emotional impact, and writing level
 
 THE SYSTEM SHALL display the characterization above the article content
 
@@ -315,8 +320,8 @@ WHEN user submits feedback
 THE SYSTEM SHALL store feedback with characterization and article linkage
 
 **Rationale:** Users want to provide contextual feedback on articles to improve
-scoring, with the option to give detailed input when motivated without forcing it
-for every rating.
+scoring, with the option to give detailed input when motivated without forcing
+it for every rating.
 
 ---
 
@@ -325,8 +330,8 @@ for every rating.
 WHEN UTC midnight occurs
 THE SYSTEM SHALL collect all heuristic-refiner feedback from the past 24 hours
 
-WHEN feedback exists
-THE SYSTEM SHALL issue refinement LLM call with current prompt and all characterization-feedback pairs
+WHEN feedback exists THE SYSTEM SHALL issue refinement LLM call with current
+prompt and all characterization-feedback pairs
 
 THE SYSTEM SHALL create new prompt generation from structured LLM response
 
@@ -375,10 +380,11 @@ application feel like their own curation tool.
 WHEN new article content is extracted
 THE SYSTEM SHALL perform pairwise comparisons with existing scored articles
 
-WHEN comparing two articles
-THE SYSTEM SHALL present both to Claude asking which is more relevant to user interests
+WHEN comparing two articles THE SYSTEM SHALL present both to Claude asking which
+is more relevant to user interests
 
-THE SYSTEM SHALL update Elo ratings for both articles based on comparison outcome
+THE SYSTEM SHALL update Elo ratings for both articles based on comparison
+outcome
 
 **Rationale:** Users want better discrimination between articles. Pairwise
 comparisons force the LLM to make relative judgments, avoiding score clustering
@@ -391,12 +397,13 @@ around 6-8 that occurs with absolute 1-10 ratings.
 WHEN new article enters the system
 THE SYSTEM SHALL assign initial Elo rating of 1500
 
-WHEN article completes initial comparison rounds
-THE SYSTEM SHALL mark article as having stable Elo confidence
+WHEN article completes 7 or more pairwise comparisons
+THE SYSTEM SHALL consider the article to have a stable Elo rating
 
 **Rationale:** Users want new articles to start at a neutral baseline rating,
 allowing the comparison system to quickly establish their true relevance through
-pairwise contests.
+pairwise contests. Seven comparisons provide statistical confidence without
+excessive API costs.
 
 ---
 

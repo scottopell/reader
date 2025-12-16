@@ -105,9 +105,7 @@ class ArticleRepository:
             return [self._row_to_article(row) for row in rows]
 
     # REQ-RC-008, REQ-RC-027: Get articles for inbox display
-    def get_inbox(
-        self, show_all: bool = False, limit: int = 50, offset: int = 0
-    ) -> list[Article]:
+    def get_inbox(self, show_all: bool = False, limit: int = 50, offset: int = 0) -> list[Article]:
         """Get articles for inbox, optionally filtered by Elo percentile.
 
         REQ-RC-027: Use Elo percentiles to preserve p50+ filtering behavior.
@@ -538,9 +536,7 @@ class PromptGenerationRepository:
     def get_active(self) -> PromptGeneration | None:
         """Get the currently active prompt generation."""
         with get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM prompt_generations WHERE is_active = 1"
-            ).fetchone()
+            row = conn.execute("SELECT * FROM prompt_generations WHERE is_active = 1").fetchone()
             if row:
                 return self._row_to_generation(row)
             return None
@@ -559,9 +555,7 @@ class PromptGenerationRepository:
     def get_all(self) -> list[PromptGeneration]:
         """Get all prompt generations ordered by ID descending."""
         with get_connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM prompt_generations ORDER BY id DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM prompt_generations ORDER BY id DESC").fetchall()
             return [self._row_to_generation(row) for row in rows]
 
     def get_previous_n(self, n: int = 5) -> list[PromptGeneration]:

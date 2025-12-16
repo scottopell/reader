@@ -17,10 +17,8 @@ import httpx
 
 from reader.db.repository import ArticleRepository, FeedSourceRepository
 from reader.extraction.readability import extract_from_html, extract_from_url
-from reader.models.article import ArticleCreate, ArticleScore, ExtractionStatus
-from reader.models.scoring import ScoringRequest
+from reader.models.article import ArticleCreate, ExtractionStatus
 from reader.models.source import FeedSource, SourceType
-from reader.scoring.llm import ScoringError, get_content_preview, score_article
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +221,9 @@ async def _score_article(article_id: int, article_repo: ArticleRepository) -> bo
 
         # Consider it successful if at least one comparison completed
         if comparisons_completed > 0:
-            logger.info("Scored article %d with %d Elo comparisons", article_id, comparisons_completed)
+            logger.info(
+                "Scored article %d with %d Elo comparisons", article_id, comparisons_completed
+            )
             return True
         else:
             logger.warning("No comparisons completed for article %d", article_id)
@@ -291,6 +291,7 @@ async def ingest_feed(source: FeedSource) -> IngestionResult:
 
         # Score new articles
         from reader.config import get_settings
+
         settings = get_settings()
 
         for article_id in new_article_ids:

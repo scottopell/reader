@@ -7,7 +7,7 @@ REQ-RC-027: Display Normalized Elo Scores to Users
 """
 
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 from reader.models.elo import ComparisonOutcome, EloUpdate
 

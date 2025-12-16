@@ -182,24 +182,28 @@ async def inbox_articles(
             below = sum(1 for r in all_elo_ratings if r < article.elo_rating)
             percentile = int((below / len(all_elo_ratings)) * 100)
 
-        items.append({
-            "id": article.id,
-            "title": article.title,
-            "source": article.source,
-            "elo_rating": article.elo_rating,
-            "percentile": percentile,
-            "reading_time_category": (
-                article.reading_time_category.value if article.reading_time_category else None
-            ),
-            "user_rating": article.user_rating,
-            "generation_id": article.generation_id,
-        })
+        items.append(
+            {
+                "id": article.id,
+                "title": article.title,
+                "source": article.source,
+                "elo_rating": article.elo_rating,
+                "percentile": percentile,
+                "reading_time_category": (
+                    article.reading_time_category.value if article.reading_time_category else None
+                ),
+                "user_rating": article.user_rating,
+                "generation_id": article.generation_id,
+            }
+        )
 
-    return JSONResponse(content={
-        "articles": items,
-        "has_more": has_more,
-        "next_offset": offset + limit,
-    })
+    return JSONResponse(
+        content={
+            "articles": items,
+            "has_more": has_more,
+            "next_offset": offset + limit,
+        }
+    )
 
 
 @router.get("/stats", response_class=HTMLResponse)

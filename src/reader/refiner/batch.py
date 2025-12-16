@@ -81,7 +81,9 @@ def _format_feedback_items(feedback_list: list[HeuristicFeedback]) -> str:
         item_lines.append(f"  User comment: {feedback.feedback_text}")
         if feedback.characterization:
             char = feedback.characterization
-            item_lines.append(f"  Article: topic={char.topic}, style={char.style}, depth={char.depth}")
+            item_lines.append(
+                f"  Article: topic={char.topic}, style={char.style}, depth={char.depth}"
+            )
         items.append("\n".join(item_lines))
     return "\n\n".join(items)
 

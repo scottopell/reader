@@ -49,8 +49,12 @@ class PromptGeneration(BaseModel):
     diff_from_previous: str | None = Field(
         default=None, description="Word-diff from previous generation"
     )
-    feedback_count: int = Field(default=0, description="Number of feedback items that produced this")
-    is_active: bool = Field(default=False, description="Currently active generation for new scoring")
+    feedback_count: int = Field(
+        default=0, description="Number of feedback items that produced this"
+    )
+    is_active: bool = Field(
+        default=False, description="Currently active generation for new scoring"
+    )
 
 
 # REQ-RC-019: 5-Whats characterization

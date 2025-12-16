@@ -44,7 +44,7 @@ captures:
 
 After your reflection, output the continuation prompt in a fenced code block:
 
-```
+```text
 <your continuation prompt here>
 ```
 
