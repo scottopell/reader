@@ -184,6 +184,74 @@ Reading Time: {article.reading_time_category or "unknown"}
     )
 
 
+class ArticleListItem(BaseModel):
+    """Article summary for list display."""
+
+    id: int
+    title: str
+    source: str
+    elo_rating: float
+    percentile: int
+    reading_time_category: str | None
+    user_rating: int
+    generation_id: int | None
+
+
+class ArticleListResponse(BaseModel):
+    """Response for article list endpoint."""
+
+    articles: list[ArticleListItem]
+    has_more: bool
+    next_offset: int
+
+
+@router.get("/articles", response_model=ArticleListResponse)
+async def list_articles(
+    _api_key: Annotated[str, Depends(require_api_key)],
+    offset: int = 0,
+    limit: int = 50,
+    show_all: bool = False,
+) -> ArticleListResponse:
+    """Get paginated list of articles for inbox display."""
+    repo = ArticleRepository()
+
+    # Get articles with one extra to check if there are more
+    articles = repo.get_inbox(show_all=show_all, limit=limit + 1, offset=offset)
+    has_more = len(articles) > limit
+    articles = articles[:limit]
+
+    # Calculate percentiles
+    all_elo_ratings = sorted(repo.get_all_elo_ratings())
+    items: list[ArticleListItem] = []
+
+    for article in articles:
+        percentile = 0
+        if all_elo_ratings:
+            below = sum(1 for r in all_elo_ratings if r < article.elo_rating)
+            percentile = int((below / len(all_elo_ratings)) * 100)
+
+        items.append(
+            ArticleListItem(
+                id=article.id,
+                title=article.title,
+                source=article.source,
+                elo_rating=article.elo_rating,
+                percentile=percentile,
+                reading_time_category=(
+                    article.reading_time_category.value if article.reading_time_category else None
+                ),
+                user_rating=article.user_rating,
+                generation_id=article.generation_id,
+            )
+        )
+
+    return ArticleListResponse(
+        articles=items,
+        has_more=has_more,
+        next_offset=offset + limit,
+    )
+
+
 @router.post("/bundle/add/{article_id}", response_model=BundleAddResponse)
 async def add_to_bundle(
     article_id: int,

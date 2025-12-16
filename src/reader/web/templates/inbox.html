@@ -86,6 +86,18 @@
         }
         .article-score.low { background: #ffc107; color: #333; }
         .article-score.very-low { background: #dc3545; }
+        .percentile-badge {
+            background: #6f42c1;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .percentile-badge.top-10 { background: #28a745; }
+        .percentile-badge.top-25 { background: #20c997; }
+        .percentile-badge.mid { background: #6c757d; }
+        .percentile-badge.low { background: #dc3545; }
         /* REQ-RC-008: Generation badge */
         .generation-badge {
             background: #e9ecef;
@@ -123,6 +135,24 @@
             padding: 60px 20px;
             color: #666;
         }
+        .load-more-container {
+            text-align: center;
+            padding: 20px;
+        }
+        .load-more-btn {
+            padding: 12px 32px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .load-more-btn:hover { background: #0056b3; }
+        .load-more-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -143,6 +173,7 @@
         </div>
     </header>
 
+    <div id="articles-container">
     {% if articles %}
         {% for article in articles %}
         <div class="article">
@@ -159,9 +190,11 @@
                     {% if article.generation_id %}
                     <span class="generation-badge" title="Prompt generation">Gen {{ article.generation_id }}</span>
                     {% endif %}
-                    {% if article.llm_score %}
-                    <span class="article-score {% if article.llm_score < 5 %}very-low{% elif article.llm_score < 7 %}low{% endif %}">
-                        {{ "%.1f"|format(article.llm_score) }}
+                    <!-- Elo percentile badge -->
+                    {% if article.id in percentiles %}
+                    {% set pct = percentiles[article.id] %}
+                    <span class="percentile-badge {% if pct >= 90 %}top-10{% elif pct >= 75 %}top-25{% elif pct < 25 %}low{% else %}mid{% endif %}" title="Elo rating: {{ article.elo_rating|round(0)|int }}">
+                        p{{ pct }}
                     </span>
                     {% endif %}
                 </div>
@@ -182,5 +215,87 @@
             <p>Add some RSS feeds or email sources to get started.</p>
         </div>
     {% endif %}
+    </div>
+
+    {% if articles %}
+    <div class="load-more-container">
+        <button id="load-more-btn" class="load-more-btn">Load More</button>
+    </div>
+    {% endif %}
+
+    <script>
+    (function() {
+        const container = document.getElementById('articles-container');
+        const btn = document.getElementById('load-more-btn');
+        if (!btn) return;
+
+        let nextOffset = {{ articles|length }};
+        const limit = 50;
+        const showAll = {{ 'true' if show_all else 'false' }};
+
+        function getPercentileClass(pct) {
+            if (pct >= 90) return 'top-10';
+            if (pct >= 75) return 'top-25';
+            if (pct < 25) return 'low';
+            return 'mid';
+        }
+
+        function createArticleHTML(article) {
+            let badges = '';
+            if (article.user_rating === 1) {
+                badges += '<span class="rating-indicator up" title="Thumbs up">&#128077;</span>';
+            } else if (article.user_rating === -1) {
+                badges += '<span class="rating-indicator down" title="Thumbs down">&#128078;</span>';
+            }
+            if (article.generation_id) {
+                badges += `<span class="generation-badge" title="Prompt generation">Gen ${article.generation_id}</span>`;
+            }
+            const pctClass = getPercentileClass(article.percentile);
+            badges += `<span class="percentile-badge ${pctClass}" title="Elo rating: ${Math.round(article.elo_rating)}">p${article.percentile}</span>`;
+
+            return `
+                <div class="article">
+                    <div class="article-header">
+                        <h2 class="article-title"><a href="/article/${article.id}">${article.title}</a></h2>
+                        <div class="article-badges">${badges}</div>
+                    </div>
+                    <div class="article-meta">
+                        ${article.source} · ${article.reading_time_category || 'unknown'} read
+                    </div>
+                </div>
+            `;
+        }
+
+        btn.addEventListener('click', async function() {
+            btn.disabled = true;
+            btn.textContent = 'Loading...';
+
+            try {
+                const url = `/inbox/articles?offset=${nextOffset}&limit=${limit}&show_all=${showAll}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to load');
+
+                const data = await response.json();
+
+                for (const article of data.articles) {
+                    container.insertAdjacentHTML('beforeend', createArticleHTML(article));
+                }
+
+                nextOffset = data.next_offset;
+
+                if (!data.has_more) {
+                    btn.textContent = 'No more articles';
+                    btn.disabled = true;
+                } else {
+                    btn.textContent = 'Load More';
+                    btn.disabled = false;
+                }
+            } catch (e) {
+                btn.textContent = 'Error - Try Again';
+                btn.disabled = false;
+            }
+        });
+    })();
+    </script>
 </body>
 </html>

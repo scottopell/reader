@@ -31,7 +31,6 @@ CREATE TABLE IF NOT EXISTS articles (
   -- REQ-RC-024, REQ-RC-025: Elo-based pairwise comparison scoring
   elo_rating REAL DEFAULT 1500,
   elo_comparisons INTEGER DEFAULT 0,
-  elo_confidence BOOLEAN DEFAULT 0,
 
   -- REQ-RC-014: User decision tracking
   user_decision TEXT DEFAULT 'pending',

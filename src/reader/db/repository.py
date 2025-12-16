@@ -105,7 +105,9 @@ class ArticleRepository:
             return [self._row_to_article(row) for row in rows]
 
     # REQ-RC-008, REQ-RC-027: Get articles for inbox display
-    def get_inbox(self, show_all: bool = False, limit: int = 50) -> list[Article]:
+    def get_inbox(
+        self, show_all: bool = False, limit: int = 50, offset: int = 0
+    ) -> list[Article]:
         """Get articles for inbox, optionally filtered by Elo percentile.
 
         REQ-RC-027: Use Elo percentiles to preserve p50+ filtering behavior.
@@ -117,9 +119,9 @@ class ArticleRepository:
                     SELECT * FROM articles
                     WHERE user_decision = 'pending'
                     ORDER BY elo_rating DESC NULLS LAST, received_at DESC
-                    LIMIT ?
+                    LIMIT ? OFFSET ?
                     """,
-                    (limit,),
+                    (limit, offset),
                 ).fetchall()
             else:
                 # REQ-RC-012, REQ-RC-027: Filter to p50+ by Elo percentile
@@ -141,9 +143,9 @@ class ArticleRepository:
                         WHERE user_decision = 'pending'
                           AND elo_rating >= ?
                         ORDER BY elo_rating DESC, received_at DESC
-                        LIMIT ?
+                        LIMIT ? OFFSET ?
                         """,
-                        (median_elo[0], limit),
+                        (median_elo[0], limit, offset),
                     ).fetchall()
                 else:
                     # No Elo ratings yet, show all
@@ -152,9 +154,9 @@ class ArticleRepository:
                         SELECT * FROM articles
                         WHERE user_decision = 'pending'
                         ORDER BY received_at DESC
-                        LIMIT ?
+                        LIMIT ? OFFSET ?
                         """,
-                        (limit,),
+                        (limit, offset),
                     ).fetchall()
             return [self._row_to_article(row) for row in rows]
 
@@ -220,10 +222,6 @@ class ArticleRepository:
                     UPDATE articles SET
                         elo_rating = ?,
                         elo_comparisons = elo_comparisons + 1,
-                        elo_confidence = CASE
-                            WHEN elo_comparisons + 1 >= 7 THEN 1
-                            ELSE 0
-                        END,
                         scored_at = ?
                     WHERE id = ?
                     """,
@@ -429,7 +427,6 @@ class ArticleRepository:
             scored_at=datetime.fromisoformat(row["scored_at"]) if row["scored_at"] else None,
             elo_rating=row["elo_rating"] if row["elo_rating"] is not None else 1500.0,
             elo_comparisons=row["elo_comparisons"] or 0,
-            elo_confidence=bool(row["elo_confidence"]),
             user_decision=UserDecision(row["user_decision"]),
             decided_at=datetime.fromisoformat(row["decided_at"]) if row["decided_at"] else None,
             user_rating=row["user_rating"] or 0,

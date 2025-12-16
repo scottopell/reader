@@ -12,7 +12,8 @@ REQ-RC-023: Customize Application Appearance
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
 
 from reader.auth.middleware import require_basic_auth
 from reader.db.repository import (
@@ -36,6 +37,7 @@ async def inbox(
     request: Request,
     username: Annotated[str, Depends(require_basic_auth)],
     show_all: bool = False,
+    limit: int = 50,
 ) -> HTMLResponse:
     """Display inbox with scored articles.
 
@@ -48,8 +50,17 @@ async def inbox(
     """
     repo = ArticleRepository()
     settings_repo = AppSettingsRepository()
-    articles = repo.get_inbox(show_all=show_all)
+    articles = repo.get_inbox(show_all=show_all, limit=limit)
     app_settings = settings_repo.get_all()
+
+    # Calculate Elo percentiles for display
+    all_elo_ratings = sorted(repo.get_all_elo_ratings())
+    percentiles: dict[int, int] = {}
+    if all_elo_ratings:
+        for article in articles:
+            # Count how many ratings are below this one
+            below = sum(1 for r in all_elo_ratings if r < article.elo_rating)
+            percentiles[article.id] = int((below / len(all_elo_ratings)) * 100)
 
     return templates.TemplateResponse(
         request=request,
@@ -59,6 +70,7 @@ async def inbox(
             "show_all": show_all,
             "username": username,
             "app_settings": app_settings,
+            "percentiles": percentiles,
         },
     )
 
@@ -122,6 +134,72 @@ async def search(
             "query": q,
         },
     )
+
+
+class ArticleListItem(BaseModel):
+    """Article summary for list display."""
+
+    id: int
+    title: str
+    source: str
+    elo_rating: float
+    percentile: int
+    reading_time_category: str | None
+    user_rating: int
+    generation_id: int | None
+
+
+class ArticleListResponse(BaseModel):
+    """Response for article list endpoint."""
+
+    articles: list[ArticleListItem]
+    has_more: bool
+    next_offset: int
+
+
+@router.get("/inbox/articles", response_class=JSONResponse)
+async def inbox_articles(
+    _username: Annotated[str, Depends(require_basic_auth)],
+    offset: int = 0,
+    limit: int = 50,
+    show_all: bool = False,
+) -> JSONResponse:
+    """Get paginated list of articles for Load More functionality."""
+    repo = ArticleRepository()
+
+    # Get articles with one extra to check if there are more
+    articles = repo.get_inbox(show_all=show_all, limit=limit + 1, offset=offset)
+    has_more = len(articles) > limit
+    articles = articles[:limit]
+
+    # Calculate percentiles
+    all_elo_ratings = sorted(repo.get_all_elo_ratings())
+    items: list[dict[str, int | str | float | None]] = []
+
+    for article in articles:
+        percentile = 0
+        if all_elo_ratings:
+            below = sum(1 for r in all_elo_ratings if r < article.elo_rating)
+            percentile = int((below / len(all_elo_ratings)) * 100)
+
+        items.append({
+            "id": article.id,
+            "title": article.title,
+            "source": article.source,
+            "elo_rating": article.elo_rating,
+            "percentile": percentile,
+            "reading_time_category": (
+                article.reading_time_category.value if article.reading_time_category else None
+            ),
+            "user_rating": article.user_rating,
+            "generation_id": article.generation_id,
+        })
+
+    return JSONResponse(content={
+        "articles": items,
+        "has_more": has_more,
+        "next_offset": offset + limit,
+    })
 
 
 @router.get("/stats", response_class=HTMLResponse)
