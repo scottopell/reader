@@ -205,12 +205,6 @@
         .thumb-btn.down { border-color: #dc3545; }
         .thumb-btn.down:hover { background: #f8d7da; }
         .thumb-btn.down.active { background: #dc3545; }
-        .thumb-btn.clear {
-            font-size: 14px;
-            padding: 8px 12px;
-            border-color: #6c757d;
-        }
-        .thumb-btn.clear:hover { background: #e9ecef; }
         .current-rating {
             margin-left: 12px;
             color: #666;
@@ -246,6 +240,13 @@
             color: white;
         }
         .refiner-btn.no:hover { background: #5c636a; }
+        .slow-warning {
+            display: block;
+            margin-top: 8px;
+            font-size: 12px;
+            color: #6c757d;
+            font-style: italic;
+        }
         .refined-indicator {
             display: inline-block;
             background: #d1e7dd;
@@ -334,41 +335,83 @@
                 <span class="refined-indicator">Feedback provided</span>
                 {% endif %}
             </h3>
-            <div class="thumbs-buttons">
-                <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
-                    <input type="hidden" name="rating" value="1">
-                    <button type="submit" class="thumb-btn up {% if article.user_rating == 1 %}active{% endif %}" title="Thumbs up">
-                        &#128077;
-                    </button>
-                </form>
-                <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
-                    <input type="hidden" name="rating" value="-1">
-                    <button type="submit" class="thumb-btn down {% if article.user_rating == -1 %}active{% endif %}" title="Thumbs down">
-                        &#128078;
-                    </button>
-                </form>
-                {% if article.user_rating != 0 %}
-                <form action="/article/{{ article.id }}/rating" method="post" style="display: inline;">
-                    <input type="hidden" name="rating" value="0">
-                    <button type="submit" class="thumb-btn clear" title="Clear rating">
-                        Clear
-                    </button>
-                </form>
-                {% endif %}
-                <span class="current-rating">
+
+            <!-- REQ-RC-020: Heuristic-refiner entry prompt (shown after rating) -->
+            <div class="refiner-prompt" id="refiner-prompt" {% if article.user_rating == 0 or article.rating_refined %}style="display: none;"{% endif %}>
+                <p id="refiner-text"><strong>Your feedback makes scoring better!</strong> Tell us why you {% if article.user_rating == 1 %}liked{% else %}disliked{% endif %} this article so future recommendations improve.</p>
+                <a href="/article/{{ article.id }}/refine" class="refiner-btn yes">Provide feedback</a>
+                <span class="refiner-btn no" onclick="this.parentElement.style.display='none'">Not now</span>
+                <span class="slow-warning">(may take a moment to load)</span>
+            </div>
+
+            <div class="thumbs-buttons" id="thumbs-buttons">
+                <button type="button" class="thumb-btn up {% if article.user_rating == 1 %}active{% endif %}" data-rating="1" title="Thumbs up">
+                    &#128077;
+                </button>
+                <button type="button" class="thumb-btn down {% if article.user_rating == -1 %}active{% endif %}" data-rating="-1" title="Thumbs down">
+                    &#128078;
+                </button>
+                <span class="current-rating" id="current-rating">
                     {% if article.user_rating == 1 %}Liked{% elif article.user_rating == -1 %}Disliked{% else %}Not rated{% endif %}
                 </span>
             </div>
-
-            <!-- REQ-RC-020: Heuristic-refiner entry prompt (shown after rating) -->
-            {% if article.user_rating != 0 and not article.rating_refined %}
-            <div class="refiner-prompt">
-                <p>Want to help improve scoring? Provide detailed feedback about why you {% if article.user_rating == 1 %}liked{% else %}disliked{% endif %} this article.</p>
-                <a href="/article/{{ article.id }}/refine" class="refiner-btn yes">Yes, provide feedback</a>
-                <span class="refiner-btn no" onclick="this.parentElement.style.display='none'">No thanks</span>
-            </div>
-            {% endif %}
         </div>
     </div>
+
+    <script>
+    (function() {
+        const articleId = {{ article.id }};
+        const container = document.getElementById('thumbs-buttons');
+        const currentRating = document.getElementById('current-rating');
+        const refinerPrompt = document.getElementById('refiner-prompt');
+        const refinerText = document.getElementById('refiner-text');
+        const isRefined = {{ 'true' if article.rating_refined else 'false' }};
+
+        container.addEventListener('click', async function(e) {
+            const btn = e.target.closest('.thumb-btn');
+            if (!btn) return;
+
+            const rating = parseInt(btn.dataset.rating, 10);
+
+            try {
+                const formData = new FormData();
+                formData.append('rating', rating);
+
+                const response = await fetch(`/article/${articleId}/rating`, {
+                    method: 'POST',
+                    body: formData,
+                    redirect: 'manual'
+                });
+
+                if (response.ok || response.type === 'opaqueredirect') {
+                    // Update button states
+                    container.querySelectorAll('.thumb-btn').forEach(b => {
+                        const r = parseInt(b.dataset.rating, 10);
+                        b.classList.toggle('active', r === rating);
+                    });
+
+                    // Update rating text
+                    if (rating === 1) {
+                        currentRating.textContent = 'Liked';
+                    } else if (rating === -1) {
+                        currentRating.textContent = 'Disliked';
+                    } else {
+                        currentRating.textContent = 'Not rated';
+                    }
+
+                    // Show/hide refiner prompt
+                    if (!isRefined && rating !== 0) {
+                        refinerText.innerHTML = `<strong>Your feedback makes scoring better!</strong> Tell us why you ${rating === 1 ? 'liked' : 'disliked'} this article so future recommendations improve.`;
+                        refinerPrompt.style.display = '';
+                    } else {
+                        refinerPrompt.style.display = 'none';
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to update rating:', err);
+            }
+        });
+    })();
+    </script>
 </body>
 </html>
