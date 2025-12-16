@@ -80,6 +80,12 @@ class Settings(BaseSettings):
         description="Delay between scoring operations (prevents GPU overload)",
     )
 
+    # Prompt refinement (REQ-RC-021)
+    refinement_interval_seconds: int = Field(
+        default=86400,  # 24 hours
+        description="Interval between prompt refinement runs in seconds",
+    )
+
     # Server
     host: str = Field(default="127.0.0.1", description="Server host")
     port: int = Field(default=8000, description="Server port")

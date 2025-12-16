@@ -18,6 +18,7 @@ from reader.auth.credentials import ensure_credentials
 from reader.config import get_settings
 from reader.db.migrate import migrate
 from reader.ingestion.rss import ingest_all_rss
+from reader.refiner.batch import run_daily_refinement
 from reader.web.routes import api, inbox
 from reader.web.templates_config import STATIC_DIR
 
@@ -46,6 +47,29 @@ async def periodic_rss_ingestion() -> None:
         await asyncio.sleep(settings.rss_check_interval_seconds)
 
 
+async def periodic_prompt_refinement() -> None:
+    """REQ-RC-021: Background worker for daily prompt refinement."""
+    settings = get_settings()
+    logger.info("Starting prompt refinement background worker")
+
+    while True:
+        try:
+            logger.info("Running scheduled prompt refinement")
+            result = await run_daily_refinement()
+            if result:
+                logger.info("Created new prompt generation %d", result.id)
+            else:
+                logger.info("No feedback to process for refinement")
+        except asyncio.CancelledError:
+            logger.info("Prompt refinement worker cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Prompt refinement failed: {e}", exc_info=True)
+
+        # Sleep until next check (default 24 hours)
+        await asyncio.sleep(settings.refinement_interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan handler."""
@@ -63,14 +87,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         print("=" * 60 + "\n")
 
     # REQ-RC-002: Start background ingestion workers
-    logger.info("Starting background ingestion workers")
+    logger.info("Starting background workers")
     rss_task = asyncio.create_task(periodic_rss_ingestion())
+    refinement_task = asyncio.create_task(periodic_prompt_refinement())
 
     # Track tasks to prevent garbage collection
     background_tasks.add(rss_task)
+    background_tasks.add(refinement_task)
 
     # Add done callback for cleanup
     rss_task.add_done_callback(background_tasks.discard)
+    refinement_task.add_done_callback(background_tasks.discard)
 
     yield
 

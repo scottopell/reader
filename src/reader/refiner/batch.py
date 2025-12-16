@@ -123,6 +123,19 @@ async def refine_with_ollama(prompt: str) -> str:
         return data.get("response", "")
 
 
+# Required template variables that must be present in scoring prompts
+REQUIRED_TEMPLATE_VARS = ["{title}", "{source}", "{content_preview}"]
+
+
+def _validate_prompt_template(prompt: str) -> list[str]:
+    """Validate that a prompt contains all required template variables.
+
+    Returns list of missing variables, empty if all present.
+    """
+    missing = [var for var in REQUIRED_TEMPLATE_VARS if var not in prompt]
+    return missing
+
+
 def _parse_refinement_response(text: str) -> dict[str, str | list[str]]:
     """Parse LLM response JSON."""
     start = text.find("{")
@@ -138,6 +151,14 @@ def _parse_refinement_response(text: str) -> dict[str, str | list[str]]:
 
     if "new_prompt" not in data:
         raise RefinementError("Response missing 'new_prompt' field")
+
+    # Validate template variables are preserved
+    new_prompt = str(data["new_prompt"])
+    missing = _validate_prompt_template(new_prompt)
+    if missing:
+        raise RefinementError(
+            f"New prompt missing required template variables: {', '.join(missing)}"
+        )
 
     return data
 
